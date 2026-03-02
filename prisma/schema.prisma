@@ -1,0 +1,395 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Users & Authentication
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?   @map("password_hash")
+  firstName     String?   @map("first_name")
+  lastName      String?   @map("last_name")
+  avatarUrl     String?   @map("avatar_url")
+  emailVerified DateTime? @map("email_verified")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+
+  accounts      Account[]
+  sessions      Session[]
+  memberships   OrganizationMember[]
+  campaigns     Campaign[]
+  templates     Template[]
+  savedBlocks   SavedBlock[]
+  automations   Automation[]
+  forms         Form[]
+  images        Image[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Organizations (multi-tenant)
+model Organization {
+  id                  String   @id @default(cuid())
+  name                String
+  slug                String   @unique
+  industry            String?
+  companySize         String?  @map("company_size")
+  website             String?
+  address             String?  @db.Text
+  logoUrl             String?  @map("logo_url")
+  timezone            String   @default("UTC")
+  dateFormat          String   @default("YYYY-MM-DD") @map("date_format")
+  primaryColor        String   @default("#6366F1") @map("primary_color")
+  secondaryColor      String?  @map("secondary_color")
+  accentColor         String?  @map("accent_color")
+  brevoApiKey         String?  @map("brevo_api_key") @db.Text
+  brevoAccountName    String?  @map("brevo_account_name")
+  brevoConnected      Boolean  @default(false) @map("brevo_connected")
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  members        OrganizationMember[]
+  campaigns      Campaign[]
+  campaignStats  CampaignStats[]
+  templates      Template[]
+  savedBlocks    SavedBlock[]
+  automations    Automation[]
+  forms          Form[]
+  images         Image[]
+  contactsCache  ContactCache[]
+  segments       Segment[]
+  auditLogs      AuditLog[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id               String   @id @default(cuid())
+  organizationId   String   @map("organization_id")
+  userId           String   @map("user_id")
+  role             String   @default("editor")
+  invitedBy        String?  @map("invited_by")
+  invitationToken  String?  @map("invitation_token")
+  invitationStatus String   @default("accepted") @map("invitation_status")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("organization_members")
+}
+
+// Campaigns
+model Campaign {
+  id                  String    @id @default(cuid())
+  organizationId      String    @map("organization_id")
+  brevoCampaignId     BigInt?   @map("brevo_campaign_id")
+  name                String
+  type                String    @default("regular")
+  status              String    @default("draft")
+  senderName          String?   @map("sender_name")
+  senderEmail         String?   @map("sender_email")
+  replyTo             String?   @map("reply_to")
+  subject             String?
+  previewText         String?   @map("preview_text")
+  htmlContent         String?   @map("html_content") @db.Text
+  jsonContent         Json?     @map("json_content")
+  templateId          String?   @map("template_id")
+  recipientType       String?   @map("recipient_type")
+  listIds             Json?     @map("list_ids")
+  segmentIds          Json?     @map("segment_ids")
+  tagFilters          Json?     @map("tag_filters")
+  exclusionListIds    Json?     @map("exclusion_list_ids")
+  estimatedRecipients Int?      @map("estimated_recipients")
+  scheduledAt         DateTime? @map("scheduled_at")
+  sentAt              DateTime? @map("sent_at")
+  abTestEnabled       Boolean   @default(false) @map("ab_test_enabled")
+  abSubjectB          String?   @map("ab_subject_b")
+  abTestSize          Int?      @map("ab_test_size")
+  abWinnerCriteria    String?   @map("ab_winner_criteria")
+  abTestDuration      Int?      @map("ab_test_duration")
+  tags                Json?
+  createdBy           String?   @map("created_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  template     Template?      @relation(fields: [templateId], references: [id])
+  creator      User?          @relation(fields: [createdBy], references: [id])
+  stats        CampaignStats?
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("campaigns")
+}
+
+model CampaignStats {
+  id             String   @id @default(cuid())
+  campaignId     String   @unique @map("campaign_id")
+  organizationId String   @map("organization_id")
+  sent           Int      @default(0)
+  delivered      Int      @default(0)
+  uniqueOpens    Int      @default(0) @map("unique_opens")
+  totalOpens     Int      @default(0) @map("total_opens")
+  uniqueClicks   Int      @default(0) @map("unique_clicks")
+  totalClicks    Int      @default(0) @map("total_clicks")
+  unsubscribes   Int      @default(0)
+  hardBounces    Int      @default(0) @map("hard_bounces")
+  softBounces    Int      @default(0) @map("soft_bounces")
+  spamComplaints Int      @default(0) @map("spam_complaints")
+  openRate       Float?   @map("open_rate")
+  clickRate      Float?   @map("click_rate")
+  clickData      Json?    @map("click_data")
+  deviceData     Json?    @map("device_data")
+  lastSyncedAt   DateTime @default(now()) @map("last_synced_at")
+
+  campaign     Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_stats")
+}
+
+// Templates
+model Template {
+  id              String   @id @default(cuid())
+  organizationId  String   @map("organization_id")
+  brevoTemplateId BigInt?  @map("brevo_template_id")
+  name            String
+  category        String?
+  htmlContent     String?  @map("html_content") @db.Text
+  jsonContent     Json?    @map("json_content")
+  thumbnailUrl    String?  @map("thumbnail_url")
+  isPrebuilt      Boolean  @default(false) @map("is_prebuilt")
+  createdBy       String?  @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?        @relation(fields: [createdBy], references: [id])
+  campaigns    Campaign[]
+
+  @@index([organizationId])
+  @@map("templates")
+}
+
+// Saved Blocks
+model SavedBlock {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  category       String?
+  jsonContent    Json     @map("json_content")
+  htmlContent    String?  @map("html_content") @db.Text
+  thumbnailUrl   String?  @map("thumbnail_url")
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?        @relation(fields: [createdBy], references: [id])
+
+  @@map("saved_blocks")
+}
+
+// Automations
+model Automation {
+  id                 String   @id @default(cuid())
+  organizationId     String   @map("organization_id")
+  brevoAutomationId  BigInt?  @map("brevo_automation_id")
+  name               String
+  description        String?  @db.Text
+  status             String   @default("draft")
+  triggerType        String   @map("trigger_type")
+  triggerConfig      Json     @map("trigger_config")
+  workflowJson       Json     @map("workflow_json")
+  stats              Json?
+  isRecipe           Boolean  @default(false) @map("is_recipe")
+  recipeId           String?  @map("recipe_id")
+  createdBy          String?  @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?        @relation(fields: [createdBy], references: [id])
+
+  @@index([organizationId])
+  @@map("automations")
+}
+
+// Forms
+model Form {
+  id              String   @id @default(cuid())
+  organizationId  String   @map("organization_id")
+  name            String
+  type            String   @default("embedded")
+  status          String   @default("active")
+  fieldsConfig    Json     @map("fields_config")
+  designConfig    Json?    @map("design_config")
+  successConfig   Json?    @map("success_config")
+  targetListIds   Json?    @map("target_list_ids")
+  tags            Json?
+  doubleOptin     Boolean  @default(false) @map("double_optin")
+  gdprEnabled     Boolean  @default(false) @map("gdpr_enabled")
+  gdprText        String?  @map("gdpr_text") @db.Text
+  displayConfig   Json?    @map("display_config")
+  embedCode       String?  @map("embed_code") @db.Text
+  submissionCount Int      @default(0) @map("submission_count")
+  createdBy       String?  @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?            @relation(fields: [createdBy], references: [id])
+  submissions  FormSubmission[]
+
+  @@map("forms")
+}
+
+model FormSubmission {
+  id          String   @id @default(cuid())
+  formId      String   @map("form_id")
+  data        Json
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent") @db.Text
+  referrerUrl String?  @map("referrer_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+  @@map("form_submissions")
+}
+
+// Image Library
+model Image {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  filename       String
+  originalName   String?  @map("original_name")
+  url            String
+  thumbnailUrl   String?  @map("thumbnail_url")
+  sizeBytes      Int?     @map("size_bytes")
+  mimeType       String?  @map("mime_type")
+  width          Int?
+  height         Int?
+  altText        String?  @map("alt_text")
+  folder         String?
+  uploadedBy     String?  @map("uploaded_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploader     User?        @relation(fields: [uploadedBy], references: [id])
+
+  @@map("images")
+}
+
+// Contact Cache
+model ContactCache {
+  id              String    @id @default(cuid())
+  organizationId  String    @map("organization_id")
+  brevoContactId  BigInt?   @map("brevo_contact_id")
+  email           String
+  firstName       String?   @map("first_name")
+  lastName        String?   @map("last_name")
+  phone           String?
+  company         String?
+  attributes      Json?
+  listIds         Json?     @map("list_ids")
+  tags            Json?
+  status          String?
+  createdAtBrevo  DateTime? @map("created_at_brevo")
+  modifiedAtBrevo DateTime? @map("modified_at_brevo")
+  lastSyncedAt    DateTime  @default(now()) @map("last_synced_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([organizationId, email])
+  @@map("contacts_cache")
+}
+
+// Segments
+model Segment {
+  id              String    @id @default(cuid())
+  organizationId  String    @map("organization_id")
+  brevoSegmentId  BigInt?   @map("brevo_segment_id")
+  name            String
+  conditions      Json
+  logic           String    @default("AND")
+  contactCount    Int       @default(0) @map("contact_count")
+  lastComputedAt  DateTime? @map("last_computed_at")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("segments")
+}
+
+// Audit Log
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  userId         String?  @map("user_id")
+  action         String
+  resourceType   String?  @map("resource_type")
+  resourceId     String?  @map("resource_id")
+  details        Json?
+  ipAddress      String?  @map("ip_address")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}

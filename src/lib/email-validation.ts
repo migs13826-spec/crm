@@ -492,11 +492,25 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
   let dnsError: NodeJS.ErrnoException | null = null;
   try {
     mxRecords = await resolveMx(domain);
-    if (mxRecords.length > 0) {
+    // Filter out null MX records (RFC 7505): an MX with empty exchange (or ".")
+    // signals the domain explicitly does NOT accept email
+    const validMxRecords = mxRecords.filter(
+      (r) => r.exchange && r.exchange !== "."
+    );
+
+    if (validMxRecords.length === 0 && mxRecords.length > 0) {
+      // Domain has null MX only — explicitly rejects email
+      baseResult.status = "invalid";
+      baseResult.subStatus = "null_mx";
+      baseResult.score = 0;
+      return baseResult;
+    }
+
+    if (validMxRecords.length > 0) {
       baseResult.mxFound = true;
       // Sort by priority (lower = higher priority)
-      mxRecords.sort((a, b) => a.priority - b.priority);
-      baseResult.mxRecord = mxRecords[0].exchange;
+      validMxRecords.sort((a, b) => a.priority - b.priority);
+      baseResult.mxRecord = validMxRecords[0].exchange;
     }
   } catch (err) {
     dnsError = err as NodeJS.ErrnoException;
@@ -556,7 +570,7 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
   baseResult.smtpProvider = detectSmtpProvider(baseResult.mxRecord, null);
 
   // SMTP mailbox verification
-  if (baseResult.mxRecord) {
+  if (baseResult.mxFound && baseResult.mxRecord) {
     try {
       const smtpResult = await checkSmtp(trimmed, baseResult.mxRecord);
 
@@ -704,10 +718,24 @@ export async function validateEmailQuick(email: string): Promise<EmailValidation
   let quickDnsError: NodeJS.ErrnoException | null = null;
   try {
     const mxRecords = await resolveMx(domain);
-    if (mxRecords.length > 0) {
+    // Filter out null MX records (RFC 7505): an MX with empty exchange (or ".")
+    // signals the domain explicitly does NOT accept email
+    const validMxRecords = mxRecords.filter(
+      (r) => r.exchange && r.exchange !== "."
+    );
+
+    if (validMxRecords.length === 0 && mxRecords.length > 0) {
+      // Domain has null MX only — explicitly rejects email
+      baseResult.status = "invalid";
+      baseResult.subStatus = "null_mx";
+      baseResult.score = 0;
+      return baseResult;
+    }
+
+    if (validMxRecords.length > 0) {
       baseResult.mxFound = true;
-      mxRecords.sort((a, b) => a.priority - b.priority);
-      baseResult.mxRecord = mxRecords[0].exchange;
+      validMxRecords.sort((a, b) => a.priority - b.priority);
+      baseResult.mxRecord = validMxRecords[0].exchange;
       baseResult.smtpProvider = detectSmtpProvider(baseResult.mxRecord, null);
       baseResult.status = "valid";
       baseResult.subStatus = isRoleBased ? "role_based" : "mx_found";

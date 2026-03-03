@@ -28,7 +28,7 @@ import {
   Pilcrow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -81,6 +81,8 @@ export function EmailEditor({
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [mode, setMode] = useState<"visual" | "html">("visual");
+  const [htmlSource, setHtmlSource] = useState(content);
 
   const editor = useEditor({
     extensions: [
@@ -112,6 +114,27 @@ export function EmailEditor({
     },
   });
 
+  // Sync HTML source when switching modes
+  const switchToHtml = () => {
+    if (editor) {
+      setHtmlSource(editor.getHTML());
+    }
+    setMode("html");
+  };
+
+  const switchToVisual = () => {
+    if (editor && htmlSource !== editor.getHTML()) {
+      editor.commands.setContent(htmlSource);
+      onChange?.(htmlSource);
+    }
+    setMode("visual");
+  };
+
+  const handleHtmlSourceChange = (value: string) => {
+    setHtmlSource(value);
+    onChange?.(value);
+  };
+
   if (!editor) return null;
 
   const insertLink = () => {
@@ -137,8 +160,33 @@ export function EmailEditor({
 
   return (
     <div className="border border-gray-300 rounded-lg overflow-hidden">
-      {/* Toolbar */}
+      {/* Mode Toggle + Toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 bg-gray-50 border-b border-gray-200">
+        {/* Visual/HTML mode toggle */}
+        <div className="flex bg-gray-200 rounded-md p-0.5 mr-2">
+          <button
+            type="button"
+            onClick={switchToVisual}
+            className={cn(
+              "px-2.5 py-1 text-[11px] font-semibold rounded transition-all",
+              mode === "visual" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+            )}
+          >
+            Visual
+          </button>
+          <button
+            type="button"
+            onClick={switchToHtml}
+            className={cn(
+              "px-2.5 py-1 text-[11px] font-semibold rounded transition-all",
+              mode === "html" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+            )}
+          >
+            HTML
+          </button>
+        </div>
+
+        <div className="w-px h-5 bg-gray-300 mr-1" />
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
           active={editor.isActive("bold")}
@@ -280,7 +328,17 @@ export function EmailEditor({
       </div>
 
       {/* Editor Content */}
-      <EditorContent editor={editor} />
+      {mode === "visual" ? (
+        <EditorContent editor={editor} />
+      ) : (
+        <textarea
+          value={htmlSource}
+          onChange={(e) => handleHtmlSourceChange(e.target.value)}
+          className="w-full min-h-[300px] p-4 font-mono text-sm text-gray-800 bg-gray-900/5 focus:outline-none resize-y leading-relaxed"
+          placeholder="<h1>Your email HTML here...</h1>"
+          spellCheck={false}
+        />
+      )}
 
       {/* Link Dialog */}
       <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>

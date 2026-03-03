@@ -1,5 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateEmail, validateEmails, validateEmailQuick } from "@/lib/email-validation";
+import type { EmailValidationResult } from "@/lib/email-validation";
+
+// In-memory validation cache (persists across requests in the same server process)
+declare global {
+  // eslint-disable-next-line no-var
+  var _validationCache: Map<string, EmailValidationResult> | undefined;
+}
+
+function getCache(): Map<string, EmailValidationResult> {
+  if (!global._validationCache) {
+    global._validationCache = new Map();
+  }
+  return global._validationCache;
+}
+
+function saveResult(result: EmailValidationResult) {
+  getCache().set(result.email.toLowerCase(), result);
+}
+
+function buildSummary(results: EmailValidationResult[]) {
+  return {
+    total: results.length,
+    valid: results.filter((r) => r.status === "valid").length,
+    invalid: results.filter((r) => r.status === "invalid").length,
+    catchAll: results.filter((r) => r.status === "catch-all").length,
+    unknown: results.filter((r) => r.status === "unknown").length,
+    doNotMail: results.filter((r) =>
+      r.status === "do_not_mail" || r.status === "spamtrap" || r.status === "abuse"
+    ).length,
+    risky: results.filter((r) => r.status === "catch-all" || r.status === "unknown").length,
+  };
+}
+
+// GET /api/contacts/validate?email=... - Get cached validation result
+export async function GET(req: NextRequest) {
+  const email = req.nextUrl.searchParams.get("email");
+
+  if (email) {
+    const cached = getCache().get(email.toLowerCase());
+    if (cached) return NextResponse.json(cached);
+    return NextResponse.json({ error: "No validation result found" }, { status: 404 });
+  }
+
+  // Return all cached results
+  const all = Array.from(getCache().values());
+  return NextResponse.json({ results: all, total: all.length });
+}
 
 // POST /api/contacts/validate
 // Supports both single email and bulk validation
@@ -15,6 +62,10 @@ export async function POST(req: NextRequest) {
       const result = mode === "quick"
         ? await validateEmailQuick(body.email)
         : await validateEmail(body.email);
+
+      // Persist result
+      saveResult(result);
+
       return NextResponse.json(result);
     }
 
@@ -37,8 +88,7 @@ export async function POST(req: NextRequest) {
       const concurrency = body.concurrency || 5;
 
       if (mode === "quick") {
-        // Quick mode: DNS-only, much faster
-        const results = [];
+        const results: EmailValidationResult[] = [];
         for (let i = 0; i < body.emails.length; i += concurrency) {
           const batch = body.emails.slice(i, i + concurrency);
           const batchResults = await Promise.all(
@@ -47,23 +97,18 @@ export async function POST(req: NextRequest) {
           results.push(...batchResults);
         }
 
-        const summary = {
-          total: results.length,
-          valid: results.filter((r) => r.status === "valid").length,
-          invalid: results.filter((r) => r.status === "invalid").length,
-          catchAll: results.filter((r) => r.status === "catch-all").length,
-          unknown: results.filter((r) => r.status === "unknown").length,
-          doNotMail: results.filter((r) =>
-            r.status === "do_not_mail" || r.status === "spamtrap" || r.status === "abuse"
-          ).length,
-          risky: results.filter((r) => r.status === "catch-all" || r.status === "unknown").length,
-        };
+        // Persist all results
+        results.forEach(saveResult);
 
-        return NextResponse.json({ results, summary });
+        return NextResponse.json({ results, summary: buildSummary(results) });
       }
 
       // Full mode: DNS + SMTP verification
       const { results, summary } = await validateEmails(body.emails, concurrency);
+
+      // Persist all results
+      results.forEach(saveResult);
+
       return NextResponse.json({ results, summary });
     }
 

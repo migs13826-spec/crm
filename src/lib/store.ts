@@ -1,6 +1,8 @@
 // In-memory data store for demo/development mode
 // In production, replace with Prisma database calls
 
+import { create } from "zustand";
+
 export interface Contact {
   id: string;
   email: string;
@@ -279,6 +281,31 @@ export function createList(data: { name: string; description?: string }): Contac
   return list;
 }
 
+// Templates
+export function getTemplates(): Template[] {
+  return getStore().templates;
+}
+
+export function createTemplate(data: Omit<Template, "id" | "createdAt" | "updatedAt">): Template {
+  const store = getStore();
+  const template: Template = {
+    ...data,
+    id: `tmpl${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  store.templates.unshift(template);
+  return template;
+}
+
+export function deleteTemplate(id: string): boolean {
+  const store = getStore();
+  const idx = store.templates.findIndex((t) => t.id === id);
+  if (idx === -1) return false;
+  store.templates.splice(idx, 1);
+  return true;
+}
+
 // Dashboard stats
 export function getDashboardStats() {
   const store = getStore();
@@ -300,3 +327,236 @@ export function getDashboardStats() {
     recentCampaigns: store.campaigns.slice(0, 5),
   };
 }
+
+// ========== Client-side Zustand Store ==========
+
+export interface Automation {
+  id: string;
+  name: string;
+  status: "active" | "paused" | "draft";
+  trigger: string;
+  triggerConfig: Record<string, unknown>;
+  nodes: { id: string; type: string; config: Record<string, unknown> }[];
+  entered: number;
+  completion: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Form {
+  id: string;
+  name: string;
+  type: "embedded" | "popup" | "slide_in" | "top_bar";
+  status: "active" | "inactive";
+  fields: { name: string; type: string; required: boolean }[];
+  successMessage: string;
+  doubleOptin: boolean;
+  submissions: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AppState {
+  // Data
+  contacts: Contact[];
+  campaigns: Campaign[];
+  lists: ContactList[];
+  templates: Template[];
+  automations: Automation[];
+  forms: Form[];
+
+  // Contact actions
+  addContact: (data: Omit<Contact, "id" | "addedAt" | "lastActivity">) => void;
+  deleteContacts: (ids: string[]) => void;
+
+  // Campaign actions
+  addCampaign: (data: Partial<Campaign>) => void;
+
+  // List actions
+  addList: (name: string) => void;
+
+  // Template actions
+  addTemplate: (data: { name: string; category: string; htmlContent: string; isPrebuilt: boolean }) => void;
+  deleteTemplate: (id: string) => void;
+  duplicateTemplate: (id: string) => void;
+
+  // Automation actions
+  addAutomation: (data: Omit<Automation, "id" | "createdAt" | "updatedAt">) => void;
+  updateAutomation: (id: string, data: Partial<Automation>) => void;
+  deleteAutomation: (id: string) => void;
+
+  // Form actions
+  addForm: (data: Omit<Form, "id" | "submissions" | "createdAt" | "updatedAt">) => void;
+  updateForm: (id: string, data: Partial<Form>) => void;
+  deleteForm: (id: string) => void;
+}
+
+export const useAppStore = create<AppState>((set) => ({
+  // Seed data
+  contacts: [...seedContacts],
+  campaigns: [...seedCampaigns],
+  lists: [...seedLists],
+  templates: [],
+  automations: [],
+  forms: [],
+
+  // Contact actions
+  addContact: (data) =>
+    set((state) => ({
+      contacts: [
+        {
+          ...data,
+          id: `c${Date.now()}`,
+          addedAt: new Date().toISOString(),
+          lastActivity: "Subscribed - just now",
+        },
+        ...state.contacts,
+      ],
+    })),
+
+  deleteContacts: (ids) =>
+    set((state) => ({
+      contacts: state.contacts.filter((c) => !ids.includes(c.id)),
+    })),
+
+  // Campaign actions
+  addCampaign: (data) =>
+    set((state) => ({
+      campaigns: [
+        {
+          id: `camp${Date.now()}`,
+          name: data.name || "Untitled Campaign",
+          type: data.type || "regular",
+          status: (data.status as Campaign["status"]) || "draft",
+          senderName: data.senderName || "",
+          senderEmail: data.senderEmail || "",
+          replyTo: data.replyTo || "",
+          subject: data.subject || "",
+          previewText: data.previewText || "",
+          htmlContent: data.htmlContent || "",
+          contentType: data.contentType || "",
+          recipientType: data.recipientType || "",
+          selectedLists: data.selectedLists || [],
+          estimatedRecipients: data.estimatedRecipients || 0,
+          scheduledAt: data.scheduledAt || null,
+          sentAt: data.sentAt || null,
+          openRate: data.openRate ?? null,
+          clickRate: data.clickRate ?? null,
+          unsubRate: data.unsubRate ?? null,
+          tags: data.tags || [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        ...state.campaigns,
+      ],
+    })),
+
+  // List actions
+  addList: (name) =>
+    set((state) => ({
+      lists: [
+        ...state.lists,
+        {
+          id: `list${Date.now()}`,
+          name,
+          description: "",
+          contactCount: 0,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    })),
+
+  // Template actions
+  addTemplate: (data) =>
+    set((state) => ({
+      templates: [
+        {
+          id: `tmpl${Date.now()}`,
+          name: data.name,
+          category: data.category,
+          htmlContent: data.htmlContent,
+          jsonContent: null,
+          isPrebuilt: data.isPrebuilt,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        ...state.templates,
+      ],
+    })),
+
+  deleteTemplate: (id) =>
+    set((state) => ({
+      templates: state.templates.filter((t) => t.id !== id),
+    })),
+
+  duplicateTemplate: (id) =>
+    set((state) => {
+      const original = state.templates.find((t) => t.id === id);
+      if (!original) return state;
+      return {
+        templates: [
+          {
+            ...original,
+            id: `tmpl${Date.now()}`,
+            name: `${original.name} (Copy)`,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          ...state.templates,
+        ],
+      };
+    }),
+
+  // Automation actions
+  addAutomation: (data) =>
+    set((state) => ({
+      automations: [
+        ...state.automations,
+        {
+          ...data,
+          id: `auto${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    })),
+
+  updateAutomation: (id, data) =>
+    set((state) => ({
+      automations: state.automations.map((a) =>
+        a.id === id ? { ...a, ...data, updatedAt: new Date().toISOString() } : a
+      ),
+    })),
+
+  deleteAutomation: (id) =>
+    set((state) => ({
+      automations: state.automations.filter((a) => a.id !== id),
+    })),
+
+  // Form actions
+  addForm: (data) =>
+    set((state) => ({
+      forms: [
+        ...state.forms,
+        {
+          ...data,
+          id: `form${Date.now()}`,
+          submissions: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    })),
+
+  updateForm: (id, data) =>
+    set((state) => ({
+      forms: state.forms.map((f) =>
+        f.id === id ? { ...f, ...data, updatedAt: new Date().toISOString() } : f
+      ),
+    })),
+
+  deleteForm: (id) =>
+    set((state) => ({
+      forms: state.forms.filter((f) => f.id !== id),
+    })),
+}))

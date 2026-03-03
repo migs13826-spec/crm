@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, ChevronRight, ChevronLeft, Save } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, ChevronLeft, Save, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,8 +24,10 @@ const steps = [
 
 export default function NewCampaignPage() {
   const router = useRouter();
+  const { lists } = useAppStore();
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [campaign, setCampaign] = useState({
     name: "",
     type: "regular" as const,
@@ -48,30 +50,6 @@ export default function NewCampaignPage() {
       case 4: return campaign.htmlContent.length > 0;
       default: return true;
     }
-  };
-
-  const handleSaveDraft = () => {
-    addCampaign({
-      ...campaign,
-      type: campaign.type as "regular",
-      status: "draft",
-      estimatedRecipients: 0,
-    });
-    router.push("/campaigns");
-  };
-
-  const handleSend = () => {
-    addCampaign({
-      ...campaign,
-      type: campaign.type as "regular",
-      status: "sent",
-      sentAt: new Date().toISOString(),
-      openRate: 0,
-      clickRate: 0,
-      unsubRate: 0,
-      estimatedRecipients: 0,
-    });
-    router.push("/campaigns");
   };
 
   if (showPreview) {
@@ -149,7 +127,7 @@ export default function NewCampaignPage() {
               </div>
               {campaign.recipientType === "lists" && lists.length > 0 && (
                 <div className="ml-7 space-y-2">{lists.map((list) => (
-                  <label key={list.id} className="flex items-center gap-2"><input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-indigo-500" /><span className="text-sm text-gray-700">{list.name} ({list.count})</span></label>
+                  <label key={list.id} className="flex items-center gap-2"><input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-indigo-500" /><span className="text-sm text-gray-700">{list.name} ({list.contactCount})</span></label>
                 ))}</div>
               )}
             </div>

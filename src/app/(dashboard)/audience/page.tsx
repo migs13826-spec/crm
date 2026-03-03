@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -13,6 +13,11 @@ import {
   X,
   Trash2,
   RefreshCw,
+  ShieldCheck,
+  AlertTriangle,
+  Loader2,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +26,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { getInitials, generateAvatarColor } from "@/lib/utils";
 
 interface Contact {
@@ -44,14 +50,25 @@ interface ContactList {
   createdAt: string;
 }
 
+interface ValidationResult {
+  email: string;
+  valid: boolean;
+  riskLevel: string;
+  reason: string;
+  suggestion?: string;
+}
+
+interface ValidationResults {
+  summary: { total: number; valid: number; risky: number; invalid: number };
+  results: ValidationResult[];
+}
+
 const statusConfig: Record<string, { label: string; color: string; dot: string }> = {
   subscribed: { label: "Subscribed", color: "text-emerald-700", dot: "bg-emerald-500" },
   unsubscribed: { label: "Unsubscribed", color: "text-red-700", dot: "bg-red-500" },
   bounced: { label: "Bounced", color: "text-amber-700", dot: "bg-amber-500" },
   blacklisted: { label: "Blacklisted", color: "text-gray-700", dot: "bg-gray-900" },
 };
-
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 export default function AudiencePage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -63,6 +80,14 @@ export default function AudiencePage() {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [addForm, setAddForm] = useState({ email: "", firstName: "", lastName: "", phone: "", company: "" });
   const [saving, setSaving] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Validation state
+  const [showValidation, setShowValidation] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validationProgress, setValidationProgress] = useState(0);
+  const [validationResults, setValidationResults] = useState<ValidationResults | null>(null);
 
   const fetchContacts = useCallback(async () => {
     try {
@@ -148,37 +173,16 @@ export default function AudiencePage() {
   const paginatedContacts = filteredContacts.slice(startIndex, endIndex);
 
   const handleSearchChange = (v: string) => { setSearch(v); setCurrentPage(1); };
-  const handlePageSizeChange = (n: number) => { setPageSize(n); setCurrentPage(1); };
 
-  const toggleAll = () => {
-    if (selectedContacts.length === contacts.length) {
-      setSelectedContacts([]);
-    } else {
-      setSelectedContacts(contacts.map((c) => c.id));
-    }
-    return pages;
-  };
-
-  const toggleContact = (id: string) => setSelectedContacts((p) => p.includes(id) ? p.filter((c) => c !== id) : [...p, id]);
   const allOnPageSelected = paginatedContacts.length > 0 && paginatedContacts.every((c) => selectedContacts.includes(c.id));
+
   const toggleAllOnPage = () => {
     const ids = paginatedContacts.map((c) => c.id);
     if (allOnPageSelected) setSelectedContacts((p) => p.filter((id) => !ids.includes(id)));
     else setSelectedContacts((p) => [...new Set([...p, ...ids])]);
   };
 
-  const handleAddContact = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newContact.email) return;
-    addContact({ email: newContact.email, firstName: newContact.firstName, lastName: newContact.lastName, phone: newContact.phone, company: newContact.company, lists: [], tags: [], status: "subscribed" });
-    setNewContact({ email: "", firstName: "", lastName: "", phone: "", company: "" });
-    setShowAddContact(false);
-  };
-
-  const handleDeleteSelected = () => {
-    deleteContacts(selectedContacts);
-    setSelectedContacts([]);
-  };
+  const toggleContact = (id: string) => setSelectedContacts((p) => p.includes(id) ? p.filter((c) => c !== id) : [...p, id]);
 
   const handleValidateEmails = async () => {
     const emails = contacts.filter((c) => selectedContacts.includes(c.id)).map((c) => c.email);
@@ -233,6 +237,10 @@ export default function AudiencePage() {
               <span className="text-sm font-medium text-indigo-700">
                 {selectedContacts.length} contact{selectedContacts.length > 1 ? "s" : ""} selected
               </span>
+              <Button variant="outline" size="sm" onClick={handleValidateEmails}>
+                <ShieldCheck className="h-3 w-3 mr-1" />
+                Validate
+              </Button>
               <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
                 <Trash2 className="h-3 w-3 mr-1" />
                 Delete
@@ -256,8 +264,8 @@ export default function AudiencePage() {
                       <input
                         type="checkbox"
                         className="h-4 w-4 rounded border-gray-300 text-indigo-500"
-                        checked={selectedContacts.length === contacts.length && contacts.length > 0}
-                        onChange={toggleAll}
+                        checked={allOnPageSelected}
+                        onChange={toggleAllOnPage}
                       />
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">Email</th>
@@ -281,14 +289,14 @@ export default function AudiencePage() {
                         <td className="px-4 py-3" />
                       </tr>
                     ))
-                  ) : contacts.length === 0 ? (
+                  ) : paginatedContacts.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
                         {search ? "No contacts match your search" : "No contacts yet. Import some to get started!"}
                       </td>
                     </tr>
                   ) : (
-                    contacts.map((contact) => (
+                    paginatedContacts.map((contact) => (
                       <tr
                         key={contact.id}
                         className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors"
@@ -344,8 +352,17 @@ export default function AudiencePage() {
             </div>
             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
               <p className="text-sm text-gray-500">
-                {contacts.length} contact{contacts.length !== 1 ? "s" : ""}
+                Showing {totalContacts > 0 ? startIndex + 1 : 0}-{endIndex} of {totalContacts} contact{totalContacts !== 1 ? "s" : ""}
               </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </Card>
         </TabsContent>
@@ -371,10 +388,10 @@ export default function AudiencePage() {
                     <td className="px-4 py-3 text-sm text-gray-600">{list.contactCount.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{new Date(list.createdAt).toLocaleDateString()}</td>
                   </tr>
-                ))}</tbody>
-              </table>
-            </Card>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </Card>
         </TabsContent>
 
         <TabsContent value="tags">
@@ -382,7 +399,15 @@ export default function AudiencePage() {
             {(() => {
               const allTags = new Map<string, number>();
               contacts.forEach((c) => c.tags.forEach((t) => allTags.set(t, (allTags.get(t) || 0) + 1)));
-              return Array.from(allTags.entries()).map(([tag, count]) => (
+              const tagEntries = Array.from(allTags.entries());
+              if (tagEntries.length === 0) {
+                return (
+                  <div className="col-span-full">
+                    <Card><CardContent className="py-12 text-center"><p className="text-sm text-gray-500">No tags yet. Tags will appear here when contacts have them.</p></CardContent></Card>
+                  </div>
+                );
+              }
+              return tagEntries.map(([tag, count]) => (
                 <Card key={tag} className="card-hover">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -397,16 +422,6 @@ export default function AudiencePage() {
               ));
             })()}
           </div>
-          {tags.length === 0 ? (
-            <Card><CardContent className="py-12 text-center"><p className="text-sm text-gray-500">No tags yet.</p><Button size="sm" className="mt-3" onClick={() => setShowAddTag(true)}>Create Tag</Button></CardContent></Card>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{tags.map((tag) => (
-              <Card key={tag.name}><CardContent className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3"><div className="h-3 w-3 rounded-full" style={{ backgroundColor: tag.color }} /><div><h3 className="text-sm font-semibold text-gray-900">{tag.name}</h3><p className="text-xs text-gray-500">{tag.count} contacts</p></div></div>
-                <button className="p-1 rounded hover:bg-gray-100" onClick={() => deleteTag(tag.name)}><Trash2 className="h-4 w-4 text-gray-400 hover:text-red-500" /></button>
-              </CardContent></Card>
-            ))}</div>
-          )}
         </TabsContent>
       </Tabs>
 
@@ -456,43 +471,57 @@ export default function AudiencePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Add List Dialog */}
-      <Dialog open={showAddList} onOpenChange={setShowAddList}>
-        <DialogContent className="sm:max-w-[400px]"><DialogHeader><DialogTitle>Create List</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); if (newListName) { addList(newListName); setNewListName(""); setShowAddList(false); } }}>
-            <div className="space-y-2 mb-4"><Label>List Name</Label><Input placeholder="e.g., Newsletter Subscribers" value={newListName} onChange={(e) => setNewListName(e.target.value)} required /></div>
-            <DialogFooter><Button variant="outline" type="button" onClick={() => setShowAddList(false)}>Cancel</Button><Button type="submit">Create</Button></DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Tag Dialog */}
-      <Dialog open={showAddTag} onOpenChange={setShowAddTag}>
-        <DialogContent className="sm:max-w-[400px]"><DialogHeader><DialogTitle>Create Tag</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); if (newTagName) { addTag(newTagName, newTagColor); setNewTagName(""); setShowAddTag(false); } }}>
-            <div className="space-y-2 mb-3"><Label>Tag Name</Label><Input placeholder="e.g., VIP" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} required /></div>
-            <div className="space-y-2 mb-4"><Label>Color</Label><div className="flex gap-2">{["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#EC4899","#6B7280"].map((c) => (<button key={c} type="button" className={`h-8 w-8 rounded-full border-2 ${newTagColor === c ? "border-gray-900" : "border-transparent"}`} style={{ backgroundColor: c }} onClick={() => setNewTagColor(c)} />))}</div></div>
-            <DialogFooter><Button variant="outline" type="button" onClick={() => setShowAddTag(false)}>Cancel</Button><Button type="submit">Create</Button></DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Email Validation Dialog */}
       <Dialog open={showValidation} onOpenChange={setShowValidation}>
         <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-indigo-500" />Email Validation</DialogTitle><DialogDescription>Validating {selectedContacts.length} emails</DialogDescription></DialogHeader>
-          {validating && !validationResults && (<div className="py-8 space-y-4 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" /><p className="text-sm text-gray-600">Validating...</p><Progress value={validationProgress} className="max-w-xs mx-auto" /></div>)}
-          {validationResults && (<div className="space-y-4 overflow-hidden flex flex-col flex-1">
-            <div className="grid grid-cols-4 gap-3">
-              <div className="rounded-lg bg-gray-50 p-3 text-center"><p className="text-2xl font-bold text-gray-900">{validationResults.summary.total}</p><p className="text-xs text-gray-500">Total</p></div>
-              <div className="rounded-lg bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-600">{validationResults.summary.valid}</p><p className="text-xs text-emerald-600">Valid</p></div>
-              <div className="rounded-lg bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{validationResults.summary.risky}</p><p className="text-xs text-amber-600">Risky</p></div>
-              <div className="rounded-lg bg-red-50 p-3 text-center"><p className="text-2xl font-bold text-red-600">{validationResults.summary.invalid}</p><p className="text-xs text-red-600">Invalid</p></div>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-indigo-500" />Email Validation
+            </DialogTitle>
+            <DialogDescription>Validating {selectedContacts.length} emails</DialogDescription>
+          </DialogHeader>
+          {validating && !validationResults && (
+            <div className="py-8 space-y-4 text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" />
+              <p className="text-sm text-gray-600">Validating...</p>
+              <Progress value={validationProgress} className="max-w-xs mx-auto" />
             </div>
-            <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg"><table className="w-full"><thead className="sticky top-0"><tr className="bg-gray-50 border-b"><th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Status</th><th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Email</th><th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Reason</th></tr></thead>
-              <tbody>{validationResults.results.map((r, i) => (<tr key={i} className="border-b border-gray-50"><td className="px-3 py-2">{r.valid && r.riskLevel === "low" ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : r.valid ? <AlertTriangle className="h-4 w-4 text-amber-500" /> : <XCircle className="h-4 w-4 text-red-500" />}</td><td className="px-3 py-2 text-sm font-mono text-gray-900">{r.email}{r.suggestion && <p className="text-xs text-indigo-500">Suggestion: {r.suggestion}</p>}</td><td className="px-3 py-2 text-xs text-gray-600">{r.reason}</td></tr>))}</tbody>
-            </table></div>
-          </div>)}
+          )}
+          {validationResults && (
+            <div className="space-y-4 overflow-hidden flex flex-col flex-1">
+              <div className="grid grid-cols-4 gap-3">
+                <div className="rounded-lg bg-gray-50 p-3 text-center"><p className="text-2xl font-bold text-gray-900">{validationResults.summary.total}</p><p className="text-xs text-gray-500">Total</p></div>
+                <div className="rounded-lg bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-600">{validationResults.summary.valid}</p><p className="text-xs text-emerald-600">Valid</p></div>
+                <div className="rounded-lg bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{validationResults.summary.risky}</p><p className="text-xs text-amber-600">Risky</p></div>
+                <div className="rounded-lg bg-red-50 p-3 text-center"><p className="text-2xl font-bold text-red-600">{validationResults.summary.invalid}</p><p className="text-xs text-red-600">Invalid</p></div>
+              </div>
+              <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
+                <table className="w-full">
+                  <thead className="sticky top-0">
+                    <tr className="bg-gray-50 border-b">
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Status</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Email</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {validationResults.results.map((r, i) => (
+                      <tr key={i} className="border-b border-gray-50">
+                        <td className="px-3 py-2">
+                          {r.valid && r.riskLevel === "low" ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : r.valid ? <AlertTriangle className="h-4 w-4 text-amber-500" /> : <XCircle className="h-4 w-4 text-red-500" />}
+                        </td>
+                        <td className="px-3 py-2 text-sm font-mono text-gray-900">
+                          {r.email}
+                          {r.suggestion && <p className="text-xs text-indigo-500">Suggestion: {r.suggestion}</p>}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{r.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <DialogFooter><Button onClick={() => setShowValidation(false)}>{validating ? "Cancel" : "Close"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
@@ -587,4 +616,3 @@ export default function AudiencePage() {
     </div>
   );
 }
-

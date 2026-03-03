@@ -18,7 +18,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatPercentage } from "@/lib/utils";
-import { useAppStore } from "@/lib/store";
+const statusConfig: Record<string, { label: string; variant: "success" | "secondary" | "default" | "warning" }> = {
+  sent: { label: "Sent", variant: "success" },
+  draft: { label: "Draft", variant: "secondary" },
+  scheduled: { label: "Scheduled", variant: "default" },
+  sending: { label: "Sending", variant: "warning" },
+  paused: { label: "Paused", variant: "warning" },
+  archived: { label: "Archived", variant: "secondary" },
+};
 
 interface DashboardData {
   totalContacts: number;

@@ -15,6 +15,8 @@ import {
   Menu,
   X,
   ChevronDown,
+  Bell,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -54,21 +56,22 @@ export function Navbar({ user }: NavbarProps) {
     : "U";
 
   return (
-    <nav className="sticky top-0 z-50 h-16 border-b border-gray-200 bg-white">
+    <nav className="sticky top-0 z-50 h-16 bg-white/80 backdrop-blur-xl border-b border-gray-200/60">
       <div className="flex h-full items-center justify-between px-4 lg:px-6">
-        {/* Logo */}
+        {/* Logo + Nav */}
         <div className="flex items-center gap-8">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500">
-              <Mail className="h-5 w-5 text-white" />
+          <Link href="/dashboard" className="flex items-center gap-2.5 group">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 shadow-sm shadow-indigo-200 group-hover:shadow-indigo-300 transition-shadow">
+              <Mail className="h-4.5 w-4.5 text-white" />
             </div>
-            <span className="text-lg font-bold text-gray-900 hidden sm:block">
-              CRM
+            <span className="text-lg font-bold tracking-tight hidden sm:block">
+              <span className="text-gray-900">Mail</span>
+              <span className="text-indigo-600">CRM</span>
             </span>
           </Link>
 
           {/* Desktop Nav */}
-          <div className="hidden lg:flex items-center gap-1">
+          <div className="hidden lg:flex items-center gap-0.5">
             {navItems.map((item) => {
               const isActive =
                 pathname === item.href ||
@@ -80,13 +83,13 @@ export function Navbar({ user }: NavbarProps) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                    "flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all duration-150",
                     isActive
-                      ? "text-indigo-600 bg-indigo-50"
-                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                      ? "text-indigo-700 bg-indigo-50/80"
+                      : "text-gray-500 hover:text-gray-800 hover:bg-gray-100/60"
                   )}
                 >
-                  <item.icon className="h-4 w-4" />
+                  <item.icon className={cn("h-3.5 w-3.5", isActive && "text-indigo-600")} />
                   {item.label}
                 </Link>
               );
@@ -95,17 +98,34 @@ export function Navbar({ user }: NavbarProps) {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          {/* Search (subtle) */}
+          <button className="hidden md:flex items-center gap-2 h-8 px-3 rounded-lg border border-gray-200 bg-gray-50/50 text-xs text-gray-400 hover:bg-gray-100/60 hover:text-gray-500 transition-colors">
+            <Search className="h-3.5 w-3.5" />
+            <span>Search...</span>
+            <kbd className="ml-3 text-[10px] font-mono bg-white border border-gray-200 px-1.5 py-0.5 rounded">
+              /
+            </kbd>
+          </button>
+
+          {/* Notifications */}
+          <button className="relative h-8 w-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100/60 transition-colors">
+            <Bell className="h-4 w-4" />
+            <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-indigo-500" />
+          </button>
+
           {/* User menu */}
-          <div className="relative">
+          <div className="relative ml-1">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center gap-2 rounded-md p-1.5 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 rounded-lg p-1 hover:bg-gray-100/60 transition-colors"
             >
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+              <Avatar className="h-7 w-7">
+                <AvatarFallback className="text-[10px] bg-gradient-to-br from-indigo-500 to-violet-500">
+                  {initials}
+                </AvatarFallback>
               </Avatar>
-              <ChevronDown className="h-3.5 w-3.5 text-gray-400 hidden sm:block" />
+              <ChevronDown className="h-3 w-3 text-gray-400 hidden sm:block" />
             </button>
 
             {userMenuOpen && (
@@ -114,32 +134,31 @@ export function Navbar({ user }: NavbarProps) {
                   className="fixed inset-0 z-40"
                   onClick={() => setUserMenuOpen(false)}
                 />
-                <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-gray-200 bg-white shadow-lg py-1">
+                <div className="absolute right-0 top-full mt-2 z-50 w-60 rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-200/50 py-1 animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-sm font-medium text-gray-900">
+                    <p className="text-sm font-semibold text-gray-900">
                       {user?.name || "User"}
                     </p>
                     <p className="text-xs text-gray-500 truncate">
-                      {user?.email || ""}
+                      {user?.email || "user@example.com"}
                     </p>
                   </div>
-                  <Link
-                    href="/settings"
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => setUserMenuOpen(false)}
-                  >
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Link>
-                  <div className="border-t border-gray-100">
-                    <button
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        // signOut will be called
-                      }}
+                  <div className="py-1">
+                    <Link
+                      href="/settings"
+                      className="flex items-center gap-2.5 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                      onClick={() => setUserMenuOpen(false)}
                     >
-                      <LogOut className="h-4 w-4" />
+                      <Settings className="h-4 w-4 text-gray-400" />
+                      Settings
+                    </Link>
+                  </div>
+                  <div className="border-t border-gray-100 py-1">
+                    <button
+                      className="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                      onClick={() => setUserMenuOpen(false)}
+                    >
+                      <LogOut className="h-4 w-4 text-gray-400" />
                       Log out
                     </button>
                   </div>
@@ -152,13 +171,13 @@ export function Navbar({ user }: NavbarProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
+            className="lg:hidden h-8 w-8"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
             {mobileMenuOpen ? (
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             ) : (
-              <Menu className="h-5 w-5" />
+              <Menu className="h-4 w-4" />
             )}
           </Button>
         </div>
@@ -166,8 +185,8 @@ export function Navbar({ user }: NavbarProps) {
 
       {/* Mobile menu */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-gray-200 bg-white shadow-lg">
-          <div className="px-4 py-3 space-y-1">
+        <div className="lg:hidden border-t border-gray-200/60 bg-white/95 backdrop-blur-xl shadow-lg">
+          <div className="px-3 py-3 space-y-0.5">
             {navItems.map((item) => {
               const isActive =
                 pathname === item.href ||
@@ -178,9 +197,9 @@ export function Navbar({ user }: NavbarProps) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-md",
+                    "flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors",
                     isActive
-                      ? "text-indigo-600 bg-indigo-50"
+                      ? "text-indigo-700 bg-indigo-50"
                       : "text-gray-600 hover:bg-gray-50"
                   )}
                   onClick={() => setMobileMenuOpen(false)}

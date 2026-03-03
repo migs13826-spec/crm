@@ -759,10 +759,11 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
         } else if (smtpResult.mailboxExists === false) {
           if (providerBlocksSmtpVerify) {
             // Provider is known to reject all RCPT TO from external senders.
-            // A 550 here does NOT mean the mailbox is missing — the provider
-            // simply blocks verification. Trust MX instead.
-            baseResult.status = "valid";
-            baseResult.subStatus = isRoleBased ? "role_based" : "mx_found";
+            // A 550 here does NOT reliably indicate the mailbox is missing —
+            // the provider blocks verification from unknown sources.
+            // Mark as "unknown" since we can't determine actual mailbox status.
+            baseResult.status = "unknown";
+            baseResult.subStatus = isRoleBased ? "role_based" : "smtp_verification_unavailable";
           } else {
             // Provider allows SMTP verification — trust the 550
             baseResult.status = "invalid";

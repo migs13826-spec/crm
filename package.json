@@ -10,6 +10,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "^4.2.1",
     "@auth/prisma-adapter": "^2.11.1",
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",

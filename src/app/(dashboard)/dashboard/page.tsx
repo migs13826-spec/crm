@@ -60,7 +60,7 @@ export default function DashboardPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  const greeting = getGreeting();
+  const greeting = "Welcome back";
 
   const kpiCards = data ? [
     { title: "Total Contacts", value: data.totalContacts, format: "number" as const, bg: "bg-blue-50", iconColor: "text-blue-600", icon: Users },
@@ -217,9 +217,3 @@ export default function DashboardPage() {
   );
 }
 
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}

@@ -18,6 +18,14 @@ import {
   Loader2,
   CheckCircle,
   XCircle,
+  HelpCircle,
+  Ban,
+  Mail,
+  Globe,
+  Server,
+  Clock,
+  User,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,24 +58,49 @@ interface ContactList {
   createdAt: string;
 }
 
-interface ValidationResult {
+// ZeroBounce-like validation result
+interface EmailValidationResult {
   email: string;
-  valid: boolean;
-  riskLevel: string;
-  reason: string;
-  suggestion?: string;
+  status: "valid" | "invalid" | "catch-all" | "unknown" | "spamtrap" | "abuse" | "do_not_mail";
+  subStatus: string;
+  freeEmail: boolean;
+  didYouMean: string | null;
+  account: string;
+  domain: string;
+  domainAgeDays: number | null;
+  smtpProvider: string | null;
+  mxFound: boolean;
+  mxRecord: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  score: number;
 }
 
-interface ValidationResults {
-  summary: { total: number; valid: number; risky: number; invalid: number };
-  results: ValidationResult[];
+interface BulkValidationSummary {
+  total: number;
+  valid: number;
+  invalid: number;
+  catchAll: number;
+  unknown: number;
+  doNotMail: number;
+  risky: number;
 }
 
-const statusConfig: Record<string, { label: string; color: string; dot: string }> = {
+const contactStatusConfig: Record<string, { label: string; color: string; dot: string }> = {
   subscribed: { label: "Subscribed", color: "text-emerald-700", dot: "bg-emerald-500" },
   unsubscribed: { label: "Unsubscribed", color: "text-red-700", dot: "bg-red-500" },
   bounced: { label: "Bounced", color: "text-amber-700", dot: "bg-amber-500" },
   blacklisted: { label: "Blacklisted", color: "text-gray-700", dot: "bg-gray-900" },
+};
+
+const validationStatusConfig: Record<string, { label: string; color: string; bg: string; icon: typeof CheckCircle }> = {
+  valid: { label: "Valid", color: "text-emerald-700", bg: "bg-emerald-50", icon: CheckCircle },
+  invalid: { label: "Invalid", color: "text-red-700", bg: "bg-red-50", icon: XCircle },
+  "catch-all": { label: "Catch-All", color: "text-amber-700", bg: "bg-amber-50", icon: AlertTriangle },
+  unknown: { label: "Unknown", color: "text-gray-600", bg: "bg-gray-100", icon: HelpCircle },
+  spamtrap: { label: "Spamtrap", color: "text-red-800", bg: "bg-red-100", icon: Ban },
+  abuse: { label: "Abuse", color: "text-red-700", bg: "bg-red-50", icon: Ban },
+  do_not_mail: { label: "Do Not Mail", color: "text-red-700", bg: "bg-red-50", icon: Ban },
 };
 
 export default function AudiencePage() {
@@ -81,13 +114,24 @@ export default function AudiencePage() {
   const [addForm, setAddForm] = useState({ email: "", firstName: "", lastName: "", phone: "", company: "" });
   const [saving, setSaving] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const pageSize = 25;
 
-  // Validation state
-  const [showValidation, setShowValidation] = useState(false);
-  const [validating, setValidating] = useState(false);
-  const [validationProgress, setValidationProgress] = useState(0);
-  const [validationResults, setValidationResults] = useState<ValidationResults | null>(null);
+  // Per-row validation state
+  const [validationResults, setValidationResults] = useState<Record<string, EmailValidationResult>>({});
+  const [validatingEmails, setValidatingEmails] = useState<Set<string>>(new Set());
+
+  // Bulk validation dialog state
+  const [showBulkValidation, setShowBulkValidation] = useState(false);
+  const [bulkValidating, setBulkValidating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(0);
+  const [bulkResults, setBulkResults] = useState<EmailValidationResult[] | null>(null);
+  const [bulkSummary, setBulkSummary] = useState<BulkValidationSummary | null>(null);
+
+  // Single email validation dialog
+  const [showSingleValidation, setShowSingleValidation] = useState(false);
+  const [singleValidationEmail, setSingleValidationEmail] = useState("");
+  const [singleValidating, setSingleValidating] = useState(false);
+  const [singleResult, setSingleResult] = useState<EmailValidationResult | null>(null);
 
   const fetchContacts = useCallback(async () => {
     try {
@@ -117,7 +161,6 @@ export default function AudiencePage() {
     fetchLists();
   }, [fetchContacts, fetchLists]);
 
-  // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => fetchContacts(), 300);
     return () => clearTimeout(timer);
@@ -162,6 +205,99 @@ export default function AudiencePage() {
     fetchContacts();
   };
 
+  // ===== Single Email Validation (per-row) =====
+  const validateSingleEmail = async (email: string) => {
+    setValidatingEmails((prev) => new Set(prev).add(email));
+    try {
+      const res = await fetch("/api/contacts/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (res.ok) {
+        const result: EmailValidationResult = await res.json();
+        setValidationResults((prev) => ({ ...prev, [email]: result }));
+      }
+    } catch (err) {
+      console.error("Validation failed:", err);
+    } finally {
+      setValidatingEmails((prev) => {
+        const next = new Set(prev);
+        next.delete(email);
+        return next;
+      });
+    }
+  };
+
+  // ===== Single Email Validation Dialog =====
+  const handleSingleValidation = async () => {
+    if (!singleValidationEmail.trim()) return;
+    setSingleValidating(true);
+    setSingleResult(null);
+    try {
+      const res = await fetch("/api/contacts/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: singleValidationEmail.trim() }),
+      });
+      if (res.ok) {
+        const result: EmailValidationResult = await res.json();
+        setSingleResult(result);
+        setValidationResults((prev) => ({ ...prev, [result.email]: result }));
+      }
+    } catch (err) {
+      console.error("Validation failed:", err);
+    } finally {
+      setSingleValidating(false);
+    }
+  };
+
+  // ===== Bulk Validation =====
+  const handleBulkValidation = async () => {
+    const emails = contacts
+      .filter((c) => selectedContacts.includes(c.id))
+      .map((c) => c.email);
+    if (!emails.length) return;
+
+    setShowBulkValidation(true);
+    setBulkValidating(true);
+    setBulkProgress(0);
+    setBulkResults(null);
+    setBulkSummary(null);
+
+    try {
+      const progressInterval = setInterval(() => {
+        setBulkProgress((p) => Math.min(p + 8, 90));
+      }, 300);
+
+      const res = await fetch("/api/contacts/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails }),
+      });
+
+      clearInterval(progressInterval);
+      setBulkProgress(100);
+
+      if (res.ok) {
+        const data = await res.json();
+        setBulkResults(data.results);
+        setBulkSummary(data.summary);
+
+        // Update per-row results
+        const newResults: Record<string, EmailValidationResult> = {};
+        for (const r of data.results) {
+          newResults[r.email] = r;
+        }
+        setValidationResults((prev) => ({ ...prev, ...newResults }));
+      }
+    } catch (err) {
+      console.error("Bulk validation failed:", err);
+    } finally {
+      setBulkValidating(false);
+    }
+  };
+
   const filteredContacts = useMemo(() => contacts.filter(
     (c) => c.email.toLowerCase().includes(search.toLowerCase()) || c.firstName.toLowerCase().includes(search.toLowerCase()) || c.lastName.toLowerCase().includes(search.toLowerCase())
   ), [contacts, search]);
@@ -175,25 +311,61 @@ export default function AudiencePage() {
   const handleSearchChange = (v: string) => { setSearch(v); setCurrentPage(1); };
 
   const allOnPageSelected = paginatedContacts.length > 0 && paginatedContacts.every((c) => selectedContacts.includes(c.id));
-
   const toggleAllOnPage = () => {
     const ids = paginatedContacts.map((c) => c.id);
     if (allOnPageSelected) setSelectedContacts((p) => p.filter((id) => !ids.includes(id)));
     else setSelectedContacts((p) => [...new Set([...p, ...ids])]);
   };
-
   const toggleContact = (id: string) => setSelectedContacts((p) => p.includes(id) ? p.filter((c) => c !== id) : [...p, id]);
 
-  const handleValidateEmails = async () => {
-    const emails = contacts.filter((c) => selectedContacts.includes(c.id)).map((c) => c.email);
-    if (!emails.length) return;
-    setShowValidation(true); setValidating(true); setValidationProgress(0); setValidationResults(null);
-    try {
-      const iv = setInterval(() => setValidationProgress((p) => Math.min(p + 15, 90)), 200);
-      const res = await fetch("/api/contacts/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emails }) });
-      clearInterval(iv); setValidationProgress(100);
-      if (res.ok) setValidationResults(await res.json());
-    } catch (e) { console.error(e); } finally { setValidating(false); }
+  // Render validation status badge for a contact row
+  const renderValidationBadge = (contact: Contact) => {
+    const result = validationResults[contact.email];
+    const isValidating = validatingEmails.has(contact.email);
+
+    if (isValidating) {
+      return (
+        <div className="flex items-center gap-1">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
+          <span className="text-[10px] text-gray-400">Checking...</span>
+        </div>
+      );
+    }
+
+    if (result) {
+      const config = validationStatusConfig[result.status] || validationStatusConfig.unknown;
+      const Icon = config.icon;
+      return (
+        <button
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${config.bg} ${config.color} hover:opacity-80 transition-opacity`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSingleResult(result);
+            setSingleValidationEmail(result.email);
+            setShowSingleValidation(true);
+          }}
+          title={`${result.status} - ${result.subStatus} (Score: ${result.score})`}
+        >
+          <Icon className="h-3 w-3" />
+          {config.label}
+          <span className="text-[9px] opacity-70">{result.score}</span>
+        </button>
+      );
+    }
+
+    return (
+      <button
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-50 text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors border border-gray-200"
+        onClick={(e) => {
+          e.stopPropagation();
+          validateSingleEmail(contact.email);
+        }}
+        title="Click to validate this email"
+      >
+        <ShieldCheck className="h-3 w-3" />
+        Validate
+      </button>
+    );
   };
 
   return (
@@ -207,6 +379,18 @@ export default function AudiencePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setSingleValidationEmail("");
+              setSingleResult(null);
+              setShowSingleValidation(true);
+            }}
+          >
+            <ShieldCheck className="h-4 w-4 mr-1" />
+            Validate Email
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShowAddContact(true)}><Plus className="h-4 w-4 mr-1" />Add Contact</Button>
           <Link href="/audience/import"><Button variant="outline" size="sm"><Upload className="h-4 w-4 mr-1" />Import</Button></Link>
           <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export</Button>
@@ -237,9 +421,9 @@ export default function AudiencePage() {
               <span className="text-sm font-medium text-indigo-700">
                 {selectedContacts.length} contact{selectedContacts.length > 1 ? "s" : ""} selected
               </span>
-              <Button variant="outline" size="sm" onClick={handleValidateEmails}>
+              <Button size="sm" onClick={handleBulkValidation}>
                 <ShieldCheck className="h-3 w-3 mr-1" />
-                Validate
+                Bulk Validate
               </Button>
               <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
                 <Trash2 className="h-3 w-3 mr-1" />
@@ -271,6 +455,12 @@ export default function AudiencePage() {
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">Email</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">Name</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider hidden md:table-cell">Company</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">
+                      <div className="flex items-center gap-1">
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        Validation
+                      </div>
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider hidden lg:table-cell">Tags</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">Status</th>
                     <th className="w-10 px-4 py-3"></th>
@@ -284,6 +474,7 @@ export default function AudiencePage() {
                         <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-40" /></td>
                         <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-24" /></td>
                         <td className="px-4 py-3 hidden md:table-cell"><div className="h-4 bg-gray-200 rounded w-20" /></td>
+                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-16" /></td>
                         <td className="px-4 py-3 hidden lg:table-cell"><div className="h-4 bg-gray-200 rounded w-16" /></td>
                         <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-16" /></td>
                         <td className="px-4 py-3" />
@@ -291,7 +482,7 @@ export default function AudiencePage() {
                     ))
                   ) : paginatedContacts.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
+                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                         {search ? "No contacts match your search" : "No contacts yet. Import some to get started!"}
                       </td>
                     </tr>
@@ -321,6 +512,9 @@ export default function AudiencePage() {
                         <td className="px-4 py-3 hidden md:table-cell">
                           <span className="text-sm text-gray-500">{contact.company || "--"}</span>
                         </td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          {renderValidationBadge(contact)}
+                        </td>
                         <td className="px-4 py-3 hidden lg:table-cell">
                           <div className="flex gap-1">
                             {contact.tags.slice(0, 2).map((tag) => (
@@ -333,9 +527,9 @@ export default function AudiencePage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
-                            <div className={`h-2 w-2 rounded-full ${statusConfig[contact.status]?.dot || "bg-gray-400"}`} />
-                            <span className={`text-xs font-medium ${statusConfig[contact.status]?.color || "text-gray-500"}`}>
-                              {statusConfig[contact.status]?.label || contact.status}
+                            <div className={`h-2 w-2 rounded-full ${contactStatusConfig[contact.status]?.dot || "bg-gray-400"}`} />
+                            <span className={`text-xs font-medium ${contactStatusConfig[contact.status]?.color || "text-gray-500"}`}>
+                              {contactStatusConfig[contact.status]?.label || contact.status}
                             </span>
                           </div>
                         </td>
@@ -425,7 +619,184 @@ export default function AudiencePage() {
         </TabsContent>
       </Tabs>
 
-      {/* Add Contact Dialog */}
+      {/* ===== Single Email Validation Dialog ===== */}
+      <Dialog open={showSingleValidation} onOpenChange={setShowSingleValidation}>
+        <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-indigo-500" />
+              Email Validation
+            </DialogTitle>
+            <DialogDescription>
+              Enter an email address to validate - checks MX records, SMTP mailbox, domain reputation, and more
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Enter email address..."
+                value={singleValidationEmail}
+                onChange={(e) => setSingleValidationEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSingleValidation()}
+                className="flex-1"
+              />
+              <Button onClick={handleSingleValidation} disabled={singleValidating || !singleValidationEmail.trim()}>
+                {singleValidating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ShieldCheck className="h-4 w-4 mr-1" />}
+                {singleValidating ? "Validating..." : "Validate"}
+              </Button>
+            </div>
+
+            {singleResult && (
+              <div className="space-y-4">
+                {/* Status Header */}
+                <div className={`rounded-xl p-4 ${validationStatusConfig[singleResult.status]?.bg || "bg-gray-50"} border`}>
+                  <div className="flex items-center gap-3">
+                    {(() => {
+                      const cfg = validationStatusConfig[singleResult.status];
+                      const Icon = cfg?.icon || HelpCircle;
+                      return <Icon className={`h-8 w-8 ${cfg?.color || "text-gray-500"}`} />;
+                    })()}
+                    <div>
+                      <p className="text-lg font-bold text-gray-900">{singleResult.email}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <Badge className={`${validationStatusConfig[singleResult.status]?.bg} ${validationStatusConfig[singleResult.status]?.color} border-0`}>
+                          {validationStatusConfig[singleResult.status]?.label || singleResult.status}
+                        </Badge>
+                        <span className="text-sm text-gray-500">Score: {singleResult.score}/100</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Results Grid (ZeroBounce-style) */}
+                <div className="grid grid-cols-3 gap-3">
+                  <DetailField icon={Shield} label="STATUS" value={singleResult.status} highlight={singleResult.status === "valid" ? "green" : singleResult.status === "invalid" ? "red" : "yellow"} />
+                  <DetailField icon={Shield} label="SUB-STATUS" value={singleResult.subStatus || "none"} />
+                  <DetailField icon={Mail} label="FREE EMAIL" value={singleResult.freeEmail ? "Yes" : "No"} />
+                  <DetailField icon={HelpCircle} label="DID YOU MEAN" value={singleResult.didYouMean || "Unknown"} />
+                  <DetailField icon={User} label="ACCOUNT" value={singleResult.account} />
+                  <DetailField icon={Globe} label="DOMAIN" value={singleResult.domain} />
+                  <DetailField icon={Clock} label="DOMAIN AGE DAYS" value={singleResult.domainAgeDays !== null ? String(singleResult.domainAgeDays) : "Unknown"} />
+                  <DetailField icon={Server} label="SMTP PROVIDER" value={singleResult.smtpProvider || "Unknown"} />
+                  <DetailField icon={CheckCircle} label="MX FOUND" value={singleResult.mxFound ? "true" : "false"} highlight={singleResult.mxFound ? "green" : "red"} />
+                  <DetailField icon={Server} label="MX RECORD" value={singleResult.mxRecord || "none"} wide />
+                  <DetailField icon={User} label="FIRST NAME" value={singleResult.firstName || "Unknown"} />
+                  <DetailField icon={User} label="LAST NAME" value={singleResult.lastName || "Unknown"} />
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== Bulk Validation Dialog ===== */}
+      <Dialog open={showBulkValidation} onOpenChange={setShowBulkValidation}>
+        <DialogContent className="sm:max-w-[800px] max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-indigo-500" />
+              Bulk Email Validation
+            </DialogTitle>
+            <DialogDescription>
+              Validating {selectedContacts.length} email{selectedContacts.length !== 1 ? "s" : ""} with DNS + SMTP verification
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkValidating && !bulkResults && (
+            <div className="py-10 space-y-4 text-center">
+              <Loader2 className="h-10 w-10 animate-spin mx-auto text-indigo-500" />
+              <div>
+                <p className="text-base font-semibold text-gray-900">Validating emails...</p>
+                <p className="text-sm text-gray-500 mt-1">Checking MX records, SMTP mailboxes, and domain reputation</p>
+              </div>
+              <Progress value={bulkProgress} className="max-w-sm mx-auto h-2" />
+              <p className="text-xs text-gray-400">{bulkProgress}% complete</p>
+            </div>
+          )}
+
+          {bulkSummary && bulkResults && (
+            <div className="space-y-4 overflow-hidden flex flex-col flex-1">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-6 gap-2">
+                <SummaryCard label="Total" value={bulkSummary.total} color="gray" />
+                <SummaryCard label="Valid" value={bulkSummary.valid} color="emerald" />
+                <SummaryCard label="Invalid" value={bulkSummary.invalid} color="red" />
+                <SummaryCard label="Catch-All" value={bulkSummary.catchAll} color="amber" />
+                <SummaryCard label="Unknown" value={bulkSummary.unknown} color="gray" />
+                <SummaryCard label="Do Not Mail" value={bulkSummary.doNotMail} color="red" />
+              </div>
+
+              {/* Results Table */}
+              <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Status</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Email</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Sub-Status</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">SMTP</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">MX</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkResults.map((r, i) => {
+                      const cfg = validationStatusConfig[r.status] || validationStatusConfig.unknown;
+                      const Icon = cfg.icon;
+                      return (
+                        <tr
+                          key={i}
+                          className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer"
+                          onClick={() => {
+                            setSingleResult(r);
+                            setSingleValidationEmail(r.email);
+                            setShowSingleValidation(true);
+                          }}
+                        >
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${cfg.bg} ${cfg.color}`}>
+                              <Icon className="h-3 w-3" />
+                              {cfg.label}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-gray-900">
+                            {r.email}
+                            {r.didYouMean && (
+                              <p className="text-xs text-indigo-500 font-sans">Did you mean: {r.didYouMean}</p>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-600">{r.subStatus}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">{r.smtpProvider || "-"}</td>
+                          <td className="px-3 py-2">
+                            {r.mxFound
+                              ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+                              : <XCircle className="h-3.5 w-3.5 text-red-400" />
+                            }
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`text-xs font-bold ${r.score >= 70 ? "text-emerald-600" : r.score >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                              {r.score}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setShowBulkValidation(false)}>
+              {bulkValidating ? "Cancel" : "Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== Add Contact Dialog ===== */}
       <Dialog open={showAddContact} onOpenChange={setShowAddContact}>
         <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
@@ -434,14 +805,7 @@ export default function AudiencePage() {
           <form onSubmit={handleAddContact} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="contact-email">Email *</Label>
-              <Input
-                id="contact-email"
-                type="email"
-                placeholder="email@example.com"
-                required
-                value={addForm.email}
-                onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
-              />
+              <Input id="contact-email" type="email" placeholder="email@example.com" required value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -463,70 +827,13 @@ export default function AudiencePage() {
             </div>
             <DialogFooter>
               <Button variant="outline" type="button" onClick={() => setShowAddContact(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Saving..." : "Add Contact"}
-              </Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Add Contact"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Email Validation Dialog */}
-      <Dialog open={showValidation} onOpenChange={setShowValidation}>
-        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-indigo-500" />Email Validation
-            </DialogTitle>
-            <DialogDescription>Validating {selectedContacts.length} emails</DialogDescription>
-          </DialogHeader>
-          {validating && !validationResults && (
-            <div className="py-8 space-y-4 text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" />
-              <p className="text-sm text-gray-600">Validating...</p>
-              <Progress value={validationProgress} className="max-w-xs mx-auto" />
-            </div>
-          )}
-          {validationResults && (
-            <div className="space-y-4 overflow-hidden flex flex-col flex-1">
-              <div className="grid grid-cols-4 gap-3">
-                <div className="rounded-lg bg-gray-50 p-3 text-center"><p className="text-2xl font-bold text-gray-900">{validationResults.summary.total}</p><p className="text-xs text-gray-500">Total</p></div>
-                <div className="rounded-lg bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-600">{validationResults.summary.valid}</p><p className="text-xs text-emerald-600">Valid</p></div>
-                <div className="rounded-lg bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{validationResults.summary.risky}</p><p className="text-xs text-amber-600">Risky</p></div>
-                <div className="rounded-lg bg-red-50 p-3 text-center"><p className="text-2xl font-bold text-red-600">{validationResults.summary.invalid}</p><p className="text-xs text-red-600">Invalid</p></div>
-              </div>
-              <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
-                <table className="w-full">
-                  <thead className="sticky top-0">
-                    <tr className="bg-gray-50 border-b">
-                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Status</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Email</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {validationResults.results.map((r, i) => (
-                      <tr key={i} className="border-b border-gray-50">
-                        <td className="px-3 py-2">
-                          {r.valid && r.riskLevel === "low" ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : r.valid ? <AlertTriangle className="h-4 w-4 text-amber-500" /> : <XCircle className="h-4 w-4 text-red-500" />}
-                        </td>
-                        <td className="px-3 py-2 text-sm font-mono text-gray-900">
-                          {r.email}
-                          {r.suggestion && <p className="text-xs text-indigo-500">Suggestion: {r.suggestion}</p>}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-600">{r.reason}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          <DialogFooter><Button onClick={() => setShowValidation(false)}>{validating ? "Cancel" : "Close"}</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Contact Detail Side Panel */}
+      {/* ===== Contact Detail Side Panel ===== */}
       {selectedContact && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedContact(null)} />
@@ -549,8 +856,49 @@ export default function AudiencePage() {
                   {selectedContact.firstName} {selectedContact.lastName}
                 </h2>
                 <p className="text-sm text-gray-500">{selectedContact.email}</p>
-                <div className="flex items-center justify-center gap-1.5 mt-2"><div className={`h-2 w-2 rounded-full ${statusConfig[selectedContact.status]?.dot}`} /><span className={`text-sm ${statusConfig[selectedContact.status]?.color}`}>{statusConfig[selectedContact.status]?.label}</span></div>
+                <div className="flex items-center justify-center gap-1.5 mt-2">
+                  <div className={`h-2 w-2 rounded-full ${contactStatusConfig[selectedContact.status]?.dot}`} />
+                  <span className={`text-sm ${contactStatusConfig[selectedContact.status]?.color}`}>{contactStatusConfig[selectedContact.status]?.label}</span>
+                </div>
               </div>
+
+              {/* Email Validation in Side Panel */}
+              <div>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3 tracking-wider">Email Validation</h4>
+                {validationResults[selectedContact.email] ? (
+                  <div className={`rounded-lg p-3 ${validationStatusConfig[validationResults[selectedContact.email].status]?.bg || "bg-gray-50"}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {(() => {
+                        const r = validationResults[selectedContact.email];
+                        const cfg = validationStatusConfig[r.status];
+                        const Icon = cfg?.icon || HelpCircle;
+                        return (
+                          <>
+                            <Icon className={`h-4 w-4 ${cfg?.color}`} />
+                            <span className={`text-sm font-semibold ${cfg?.color}`}>{cfg?.label}</span>
+                            <span className="text-xs text-gray-400 ml-auto">Score: {r.score}/100</span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div><span className="text-gray-400">Sub-status:</span> <span className="text-gray-700">{validationResults[selectedContact.email].subStatus}</span></div>
+                      <div><span className="text-gray-400">SMTP:</span> <span className="text-gray-700">{validationResults[selectedContact.email].smtpProvider || "-"}</span></div>
+                      <div><span className="text-gray-400">MX:</span> <span className="text-gray-700">{validationResults[selectedContact.email].mxFound ? "Found" : "Not found"}</span></div>
+                      <div><span className="text-gray-400">Free:</span> <span className="text-gray-700">{validationResults[selectedContact.email].freeEmail ? "Yes" : "No"}</span></div>
+                    </div>
+                  </div>
+                ) : (
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => validateSingleEmail(selectedContact.email)} disabled={validatingEmails.has(selectedContact.email)}>
+                    {validatingEmails.has(selectedContact.email) ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Validating...</>
+                    ) : (
+                      <><ShieldCheck className="h-3.5 w-3.5 mr-1" />Validate Email</>
+                    )}
+                  </Button>
+                )}
+              </div>
+
               <div className="flex gap-2 justify-center">
                 <Button variant="outline" size="sm">Edit</Button>
                 <Button variant="destructive" size="sm" onClick={() => handleDeleteContact(selectedContact.id)}>Delete</Button>
@@ -613,6 +961,48 @@ export default function AudiencePage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ===== Helper Components =====
+
+function DetailField({ icon: Icon, label, value, highlight, wide }: {
+  icon: typeof CheckCircle;
+  label: string;
+  value: string;
+  highlight?: "green" | "red" | "yellow";
+  wide?: boolean;
+}) {
+  const highlightColors = {
+    green: "bg-emerald-50 border-emerald-200",
+    red: "bg-red-50 border-red-200",
+    yellow: "bg-amber-50 border-amber-200",
+  };
+
+  return (
+    <div className={`rounded-lg border p-3 ${wide ? "col-span-2" : ""} ${highlight ? highlightColors[highlight] : "border-gray-200 bg-white"}`}>
+      <div className="flex items-center gap-1 mb-1">
+        <Icon className="h-3 w-3 text-gray-400" />
+        <span className="text-[10px] font-semibold uppercase text-gray-400 tracking-wider">{label}</span>
+      </div>
+      <p className="text-sm font-medium text-gray-900 truncate" title={value}>{value}</p>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, color }: { label: string; value: number; color: string }) {
+  const colorMap: Record<string, string> = {
+    gray: "bg-gray-50 text-gray-900",
+    emerald: "bg-emerald-50 text-emerald-700",
+    red: "bg-red-50 text-red-700",
+    amber: "bg-amber-50 text-amber-700",
+  };
+
+  return (
+    <div className={`rounded-lg p-3 text-center ${colorMap[color] || colorMap.gray}`}>
+      <p className="text-xl font-bold">{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-wider opacity-70">{label}</p>
     </div>
   );
 }

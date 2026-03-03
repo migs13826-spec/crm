@@ -375,6 +375,34 @@ model Segment {
   @@map("segments")
 }
 
+// Email Validation Results
+model EmailValidation {
+  id              String   @id @default(cuid())
+  organizationId  String   @map("organization_id")
+  email           String
+  status          String   // valid, invalid, catch-all, unknown, spamtrap, abuse, do_not_mail
+  subStatus       String?  @map("sub_status") // mailbox_found, mailbox_not_found, disposable, role_based, etc.
+  freeEmail       Boolean  @default(false) @map("free_email")
+  didYouMean      String?  @map("did_you_mean")
+  account         String?  // local part of email
+  domain          String?
+  domainAgeDays   Int?     @map("domain_age_days")
+  smtpProvider    String?  @map("smtp_provider")
+  mxFound         Boolean  @default(false) @map("mx_found")
+  mxRecord        String?  @map("mx_record")
+  firstName       String?  @map("first_name")
+  lastName        String?  @map("last_name")
+  score           Int?     // 0-100 deliverability score
+  validatedAt     DateTime @default(now()) @map("validated_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([email])
+  @@map("email_validations")
+}
+
 // Audit Log
 model AuditLog {
   id             String   @id @default(cuid())

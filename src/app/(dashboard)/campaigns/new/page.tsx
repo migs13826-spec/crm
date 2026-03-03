@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, ChevronRight, ChevronLeft, Eye } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, ChevronLeft, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,9 +24,8 @@ const steps = [
 
 export default function NewCampaignPage() {
   const router = useRouter();
-  const { addCampaign, updateCampaign, lists } = useAppStore();
   const [currentStep, setCurrentStep] = useState(0);
-  const [showPreview, setShowPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [campaign, setCampaign] = useState({
     name: "",
     type: "regular" as const,
@@ -94,8 +93,20 @@ export default function NewCampaignPage() {
       <div className="border-b border-gray-200 bg-white px-4 py-3 flex items-center justify-between">
         <Link href="/campaigns"><Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4 mr-1" />Back</Button></Link>
         <div className="flex items-center gap-2">
-          {campaign.htmlContent && <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}><Eye className="h-4 w-4 mr-1" />Preview</Button>}
-          <Button variant="outline" size="sm" onClick={handleSaveDraft}>Save Draft</Button>
+          <Button variant="outline" size="sm" disabled={saving || !campaign.name} onClick={async () => {
+            setSaving(true);
+            try {
+              await fetch("/api/campaigns", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(campaign),
+              });
+              router.push("/campaigns");
+            } catch (e) { console.error(e); } finally { setSaving(false); }
+          }}>
+            <Save className="h-3 w-3 mr-1" />
+            {saving ? "Saving..." : "Save Draft"}
+          </Button>
         </div>
       </div>
 
@@ -217,8 +228,19 @@ export default function NewCampaignPage() {
                 <Button variant="outline" onClick={() => setShowPreview(true)} className="w-full"><Eye className="h-4 w-4 mr-1" />Preview Email</Button>
               )}
               <div className="flex gap-3">
-                <Button className="flex-1" size="lg" onClick={handleSend}>Send Campaign</Button>
-                <Button variant="outline" size="lg" onClick={handleSaveDraft}>Save as Draft</Button>
+                <Button className="flex-1" size="lg" disabled={saving} onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await fetch("/api/campaigns", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ ...campaign, status: "sent", sentAt: new Date().toISOString(), estimatedRecipients: 8234, openRate: null, clickRate: null }),
+                    });
+                    router.push("/campaigns");
+                  } catch (e) { console.error(e); } finally { setSaving(false); }
+                }}>
+                  {saving ? "Sending..." : "Send Campaign"}
+                </Button>
               </div>
             </div>
           )}

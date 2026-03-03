@@ -489,6 +489,7 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
 
   // DNS MX lookup
   let mxRecords: dns.MxRecord[] = [];
+  let dnsError: NodeJS.ErrnoException | null = null;
   try {
     mxRecords = await resolveMx(domain);
     if (mxRecords.length > 0) {
@@ -497,26 +498,36 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
       mxRecords.sort((a, b) => a.priority - b.priority);
       baseResult.mxRecord = mxRecords[0].exchange;
     }
-  } catch {
+  } catch (err) {
+    dnsError = err as NodeJS.ErrnoException;
     // Try A record as fallback
     try {
       const aRecords = await resolveA(domain);
       if (aRecords.length > 0) {
         baseResult.mxFound = true;
         baseResult.mxRecord = aRecords[0];
+        dnsError = null;
       }
-    } catch {
-      baseResult.status = "invalid";
-      baseResult.subStatus = "no_dns_entries";
-      baseResult.score = 0;
-      return baseResult;
+    } catch (err2) {
+      dnsError = err2 as NodeJS.ErrnoException;
     }
   }
 
   if (!baseResult.mxFound) {
-    baseResult.status = "invalid";
-    baseResult.subStatus = "no_mx_records";
-    baseResult.score = 0;
+    // Distinguish between "domain doesn't exist" and "DNS network error"
+    const code = dnsError?.code;
+    if (code === "ENOTFOUND" || code === "ENODATA" || code === "ESERVFAIL") {
+      // Domain genuinely doesn't exist or has no records
+      baseResult.status = "invalid";
+      baseResult.subStatus = code === "ENOTFOUND" ? "domain_not_found" : "no_mx_records";
+      baseResult.score = 0;
+      return baseResult;
+    }
+    // DNS timeout, network error, or other transient issue
+    // Don't mark as invalid -- we can't be sure
+    baseResult.status = "unknown";
+    baseResult.subStatus = `dns_error_${code || "unknown"}`;
+    baseResult.score = 30;
     return baseResult;
   }
 
@@ -565,18 +576,20 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
           baseResult.status = "invalid";
           baseResult.subStatus = "mailbox_not_found";
         } else {
-          // Could not determine (greylisting, etc.)
-          baseResult.status = "unknown";
+          // Could not determine (greylisting, etc.) - MX exists so likely valid
+          baseResult.status = "valid";
           baseResult.subStatus = isRoleBased ? "role_based" : "mail_server_temporary_error";
         }
       } else {
-        // SMTP connection failed but MX exists
-        baseResult.status = "unknown";
-        baseResult.subStatus = "smtp_connection_failed";
+        // SMTP connection failed (port 25 blocked) but MX exists
+        // MX record confirms the domain accepts mail - treat as valid
+        baseResult.status = "valid";
+        baseResult.subStatus = isRoleBased ? "role_based" : "mx_found";
       }
     } catch {
-      baseResult.status = "unknown";
-      baseResult.subStatus = "smtp_error";
+      // SMTP error but MX exists - domain accepts mail
+      baseResult.status = "valid";
+      baseResult.subStatus = isRoleBased ? "role_based" : "mx_found";
     }
   }
 
@@ -688,6 +701,7 @@ export async function validateEmailQuick(email: string): Promise<EmailValidation
   const isRoleBased = roleAddresses.has(localPart);
 
   // DNS MX lookup only (no SMTP)
+  let quickDnsError: NodeJS.ErrnoException | null = null;
   try {
     const mxRecords = await resolveMx(domain);
     if (mxRecords.length > 0) {
@@ -697,11 +711,9 @@ export async function validateEmailQuick(email: string): Promise<EmailValidation
       baseResult.smtpProvider = detectSmtpProvider(baseResult.mxRecord, null);
       baseResult.status = "valid";
       baseResult.subStatus = isRoleBased ? "role_based" : "mx_found";
-    } else {
-      baseResult.status = "invalid";
-      baseResult.subStatus = "no_mx_records";
     }
-  } catch {
+  } catch (err) {
+    quickDnsError = err as NodeJS.ErrnoException;
     try {
       const aRecords = await resolveA(domain);
       if (aRecords.length > 0) {
@@ -709,14 +721,27 @@ export async function validateEmailQuick(email: string): Promise<EmailValidation
         baseResult.mxRecord = aRecords[0];
         baseResult.status = "valid";
         baseResult.subStatus = isRoleBased ? "role_based" : "a_record_only";
-      } else {
-        baseResult.status = "invalid";
-        baseResult.subStatus = "no_dns_entries";
+        quickDnsError = null;
       }
-    } catch {
-      baseResult.status = "invalid";
-      baseResult.subStatus = "no_dns_entries";
+    } catch (err2) {
+      quickDnsError = err2 as NodeJS.ErrnoException;
     }
+  }
+
+  if (!baseResult.mxFound && quickDnsError) {
+    const code = quickDnsError.code;
+    if (code === "ENOTFOUND" || code === "ENODATA" || code === "ESERVFAIL") {
+      baseResult.status = "invalid";
+      baseResult.subStatus = code === "ENOTFOUND" ? "domain_not_found" : "no_mx_records";
+    } else {
+      // Network error, timeout, etc. - can't determine
+      baseResult.status = "unknown";
+      baseResult.subStatus = `dns_error_${code || "unknown"}`;
+      baseResult.score = 30;
+    }
+  } else if (!baseResult.mxFound) {
+    baseResult.status = "invalid";
+    baseResult.subStatus = "no_mx_records";
   }
 
   baseResult.score = calculateScore(baseResult);

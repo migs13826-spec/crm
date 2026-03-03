@@ -210,18 +210,52 @@ export default function ImportContactsPage() {
 
   const hasEmailMapping = Object.values(columnMapping).includes("email");
 
-  const startImport = () => {
+  const [importResult, setImportResult] = useState<{ imported: number; updated: number; skipped: number } | null>(null);
+
+  const startImport = async () => {
     setStep("progress");
-    let p = 0;
-    const stats = getImportStats();
-    const interval = setInterval(() => {
-      p += Math.random() * 12 + 3;
-      if (p >= 100) {
-        p = 100;
-        clearInterval(interval);
+    setProgress(10);
+
+    // Build contact objects from parsed CSV using column mapping
+    const contactsToImport: Record<string, string>[] = [];
+    if (parsedCSV) {
+      for (const row of parsedCSV.rows) {
+        const contact: Record<string, string> = {};
+        parsedCSV.headers.forEach((header, idx) => {
+          const mappedField = columnMapping[header];
+          if (mappedField && row[idx]) {
+            contact[mappedField] = row[idx];
+          }
+        });
+        if (contact.email) {
+          contactsToImport.push(contact);
+        }
       }
-      setProgress(p);
-    }, 400);
+    }
+
+    setProgress(30);
+
+    try {
+      const tagsArray = tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+      const res = await fetch("/api/contacts/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contacts: contactsToImport,
+          listName: targetList,
+          tags: tagsArray.length > 0 ? tagsArray : undefined,
+          updateExisting,
+        }),
+      });
+      setProgress(80);
+      const result = await res.json();
+      setImportResult(result);
+      setProgress(100);
+    } catch (error) {
+      console.error("Import failed:", error);
+      setImportResult({ imported: 0, updated: 0, skipped: contactsToImport.length });
+      setProgress(100);
+    }
   };
 
   const stepLabels: { key: ImportStep; label: string; num: number }[] = [
@@ -772,24 +806,22 @@ export default function ImportContactsPage() {
                   <div className="flex justify-between px-4 py-3">
                     <span className="text-sm text-gray-500">Imported</span>
                     <span className="text-sm font-bold text-emerald-600">
-                      {getImportStats().valid.toLocaleString()}
+                      {importResult ? importResult.imported.toLocaleString() : getImportStats().valid.toLocaleString()}
                     </span>
                   </div>
-                  {getImportStats().duplicates > 0 && (
+                  {(importResult?.updated || 0) > 0 && (
                     <div className="flex justify-between px-4 py-3">
-                      <span className="text-sm text-gray-500">
-                        {updateExisting ? "Updated" : "Skipped (dupes)"}
-                      </span>
+                      <span className="text-sm text-gray-500">Updated</span>
                       <span className="text-sm font-semibold text-gray-900">
-                        {getImportStats().duplicates}
+                        {importResult!.updated}
                       </span>
                     </div>
                   )}
-                  {getImportStats().invalid > 0 && (
+                  {(importResult?.skipped || 0) > 0 && (
                     <div className="flex justify-between px-4 py-3">
-                      <span className="text-sm text-gray-500">Skipped (invalid)</span>
+                      <span className="text-sm text-gray-500">Skipped</span>
                       <span className="text-sm font-semibold text-gray-900">
-                        {getImportStats().invalid}
+                        {importResult!.skipped}
                       </span>
                     </div>
                   )}

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, ChevronRight, ChevronLeft } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Check, ChevronRight, ChevronLeft, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +20,9 @@ const steps = [
 ];
 
 export default function NewCampaignPage() {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
+  const [saving, setSaving] = useState(false);
   const [campaign, setCampaign] = useState({
     name: "",
     type: "regular",
@@ -59,7 +62,20 @@ export default function NewCampaignPage() {
           </Link>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">Save Draft</Button>
+          <Button variant="outline" size="sm" disabled={saving || !campaign.name} onClick={async () => {
+            setSaving(true);
+            try {
+              await fetch("/api/campaigns", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(campaign),
+              });
+              router.push("/campaigns");
+            } catch (e) { console.error(e); } finally { setSaving(false); }
+          }}>
+            <Save className="h-3 w-3 mr-1" />
+            {saving ? "Saving..." : "Save Draft"}
+          </Button>
         </div>
       </div>
 
@@ -373,8 +389,18 @@ export default function NewCampaignPage() {
               </div>
 
               <div className="flex gap-3">
-                <Button className="flex-1" size="lg">
-                  Send Campaign
+                <Button className="flex-1" size="lg" disabled={saving} onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await fetch("/api/campaigns", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ ...campaign, status: "sent", sentAt: new Date().toISOString(), estimatedRecipients: 8234, openRate: null, clickRate: null }),
+                    });
+                    router.push("/campaigns");
+                  } catch (e) { console.error(e); } finally { setSaving(false); }
+                }}>
+                  {saving ? "Sending..." : "Send Campaign"}
                 </Button>
               </div>
             </div>

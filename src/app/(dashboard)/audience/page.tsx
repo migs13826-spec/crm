@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -11,7 +11,8 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  UserPlus,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,35 +27,28 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { getInitials, generateAvatarColor, formatRelativeTime } from "@/lib/utils";
+import { getInitials, generateAvatarColor } from "@/lib/utils";
 
-// Mock data
-const mockContacts = [
-  { id: "1", email: "sarah@example.com", firstName: "Sarah", lastName: "Lee", lists: ["Newsletter", "VIP"], tags: ["VIP", "Engaged"], status: "subscribed", addedAt: "2025-01-15T10:00:00Z", lastActivity: "Opened 'Summer Sale' - 2h ago" },
-  { id: "2", email: "john@example.com", firstName: "John", lastName: "Smith", lists: ["Newsletter"], tags: ["New"], status: "subscribed", addedAt: "2025-02-10T10:00:00Z", lastActivity: "Clicked link - 1d ago" },
-  { id: "3", email: "jane@example.com", firstName: "Jane", lastName: "Doe", lists: ["Newsletter"], tags: [], status: "unsubscribed", addedAt: "2025-01-20T10:00:00Z", lastActivity: "Unsubscribed - 3d ago" },
-  { id: "4", email: "mike@example.com", firstName: "Mike", lastName: "Brown", lists: [], tags: ["Enterprise"], status: "subscribed", addedAt: "2025-03-01T10:00:00Z", lastActivity: "Subscribed - 5d ago" },
-  { id: "5", email: "emma@example.com", firstName: "Emma", lastName: "Wilson", lists: ["VIP"], tags: ["VIP"], status: "subscribed", addedAt: "2025-02-28T10:00:00Z", lastActivity: "Opened 'Newsletter #45' - 1d ago" },
-  { id: "6", email: "alex@example.com", firstName: "Alex", lastName: "Johnson", lists: ["Newsletter", "Product Updates"], tags: [], status: "bounced", addedAt: "2025-01-05T10:00:00Z", lastActivity: "Bounced - 2w ago" },
-];
+interface Contact {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  company: string;
+  lists: string[];
+  tags: string[];
+  status: string;
+  addedAt: string;
+  lastActivity: string;
+}
 
-const mockLists = [
-  { id: 1, name: "Newsletter Subscribers", count: 8234, createdAt: "2025-01-01" },
-  { id: 2, name: "VIP Customers", count: 456, createdAt: "2025-01-15" },
-  { id: 3, name: "Product Updates", count: 3102, createdAt: "2025-02-01" },
-];
-
-const mockSegments = [
-  { id: "1", name: "Engaged Users", conditions: "Opened any campaign in last 30 days", count: 5432, logic: "AND" },
-  { id: "2", name: "VIP Subscribers", conditions: "Tag is VIP AND Subscribed", count: 456, logic: "AND" },
-];
-
-const mockTags = [
-  { name: "VIP", count: 456, color: "#6366F1" },
-  { name: "Engaged", count: 3200, color: "#10B981" },
-  { name: "Enterprise", count: 120, color: "#F59E0B" },
-  { name: "New", count: 890, color: "#3B82F6" },
-];
+interface ContactList {
+  id: string;
+  name: string;
+  contactCount: number;
+  createdAt: string;
+}
 
 const statusConfig: Record<string, { label: string; color: string; dot: string }> = {
   subscribed: { label: "Subscribed", color: "text-emerald-700", dot: "bg-emerald-500" },
@@ -64,17 +58,88 @@ const statusConfig: Record<string, { label: string; color: string; dot: string }
 };
 
 export default function AudiencePage() {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [lists, setLists] = useState<ContactList[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [showAddContact, setShowAddContact] = useState(false);
-  const [selectedContact, setSelectedContact] = useState<typeof mockContacts[0] | null>(null);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [addForm, setAddForm] = useState({ email: "", firstName: "", lastName: "", phone: "", company: "" });
+  const [saving, setSaving] = useState(false);
 
-  const filteredContacts = mockContacts.filter(
-    (c) =>
-      c.email.toLowerCase().includes(search.toLowerCase()) ||
-      c.firstName.toLowerCase().includes(search.toLowerCase()) ||
-      c.lastName.toLowerCase().includes(search.toLowerCase())
-  );
+  const fetchContacts = useCallback(async () => {
+    try {
+      const params = search ? `?search=${encodeURIComponent(search)}` : "";
+      const res = await fetch(`/api/contacts${params}`);
+      const data = await res.json();
+      setContacts(data.contacts || []);
+    } catch (err) {
+      console.error("Failed to fetch contacts:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [search]);
+
+  const fetchLists = useCallback(async () => {
+    try {
+      const res = await fetch("/api/lists");
+      const data = await res.json();
+      setLists(data.lists || []);
+    } catch (err) {
+      console.error("Failed to fetch lists:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchContacts();
+    fetchLists();
+  }, [fetchContacts, fetchLists]);
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => fetchContacts(), 300);
+    return () => clearTimeout(timer);
+  }, [search, fetchContacts]);
+
+  const handleAddContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(addForm),
+      });
+      if (res.ok) {
+        setShowAddContact(false);
+        setAddForm({ email: "", firstName: "", lastName: "", phone: "", company: "" });
+        fetchContacts();
+      }
+    } catch (err) {
+      console.error("Failed to add contact:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteContact = async (id: string) => {
+    try {
+      await fetch(`/api/contacts/${id}`, { method: "DELETE" });
+      setSelectedContact(null);
+      fetchContacts();
+    } catch (err) {
+      console.error("Failed to delete contact:", err);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    for (const id of selectedContacts) {
+      await fetch(`/api/contacts/${id}`, { method: "DELETE" });
+    }
+    setSelectedContacts([]);
+    fetchContacts();
+  };
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
@@ -83,18 +148,23 @@ export default function AudiencePage() {
   };
 
   const toggleAll = () => {
-    if (selectedContacts.length === filteredContacts.length) {
+    if (selectedContacts.length === contacts.length) {
       setSelectedContacts([]);
     } else {
-      setSelectedContacts(filteredContacts.map((c) => c.id));
+      setSelectedContacts(contacts.map((c) => c.id));
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Audience</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Audience</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {contacts.length.toLocaleString()} contacts
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setShowAddContact(true)}>
             <Plus className="h-4 w-4 mr-1" />
@@ -116,14 +186,12 @@ export default function AudiencePage() {
       <Tabs defaultValue="contacts">
         <TabsList className="w-full justify-start">
           <TabsTrigger value="contacts">All Contacts</TabsTrigger>
-          <TabsTrigger value="lists">Lists</TabsTrigger>
-          <TabsTrigger value="segments">Segments</TabsTrigger>
+          <TabsTrigger value="lists">Lists ({lists.length})</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
         </TabsList>
 
-        {/* All Contacts Tab */}
         <TabsContent value="contacts">
-          {/* Search and Filter */}
+          {/* Search */}
           <div className="flex items-center gap-3 mb-4">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -134,26 +202,26 @@ export default function AudiencePage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Button variant="outline" size="sm">
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Add Filter
+            <Button variant="ghost" size="sm" onClick={() => fetchContacts()}>
+              <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
 
           {/* Bulk Actions */}
           {selectedContacts.length > 0 && (
-            <div className="flex items-center gap-3 mb-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+            <div className="flex items-center gap-3 mb-4 p-3 bg-indigo-50 rounded-xl border border-indigo-200">
               <span className="text-sm font-medium text-indigo-700">
-                {selectedContacts.length} contacts selected
+                {selectedContacts.length} contact{selectedContacts.length > 1 ? "s" : ""} selected
               </span>
-              <Button variant="outline" size="sm">Add to List</Button>
-              <Button variant="outline" size="sm">Add Tag</Button>
-              <Button variant="destructive" size="sm">Delete</Button>
+              <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
+                <Trash2 className="h-3 w-3 mr-1" />
+                Delete
+              </Button>
               <button
                 className="ml-auto text-sm text-indigo-600 hover:underline"
                 onClick={() => setSelectedContacts([])}
               >
-                Clear selection
+                Clear
               </button>
             </div>
           )}
@@ -163,146 +231,125 @@ export default function AudiencePage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
+                  <tr className="border-b border-gray-100 bg-gray-50/50">
                     <th className="w-10 px-4 py-3">
                       <input
                         type="checkbox"
                         className="h-4 w-4 rounded border-gray-300 text-indigo-500"
-                        checked={selectedContacts.length === filteredContacts.length && filteredContacts.length > 0}
+                        checked={selectedContacts.length === contacts.length && contacts.length > 0}
                         onChange={toggleAll}
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Email</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 hidden md:table-cell">Lists</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 hidden lg:table-cell">Tags</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 hidden xl:table-cell">Added</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">Email</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider hidden md:table-cell">Company</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider hidden lg:table-cell">Tags</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500 tracking-wider">Status</th>
                     <th className="w-10 px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredContacts.map((contact) => (
-                    <tr
-                      key={contact.id}
-                      className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
-                      onClick={() => setSelectedContact(contact)}
-                    >
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-gray-300 text-indigo-500"
-                          checked={selectedContacts.includes(contact.id)}
-                          onChange={() => toggleContact(contact.id)}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm font-medium text-gray-900">{contact.email}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm text-gray-700">
-                          {contact.firstName} {contact.lastName}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <span className="text-sm text-gray-500">
-                          {contact.lists.length > 0 ? contact.lists.slice(0, 2).join(", ") : "-"}
-                          {contact.lists.length > 2 && ` +${contact.lists.length - 2}`}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 hidden lg:table-cell">
-                        <div className="flex gap-1">
-                          {contact.tags.slice(0, 3).map((tag) => (
-                            <Badge key={tag} variant="secondary" className="text-[10px]">
-                              {tag}
-                            </Badge>
-                          ))}
-                          {contact.tags.length > 3 && (
-                            <span className="text-xs text-gray-400">+{contact.tags.length - 3}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <div className={`h-2 w-2 rounded-full ${statusConfig[contact.status]?.dot}`} />
-                          <span className={`text-xs font-medium ${statusConfig[contact.status]?.color}`}>
-                            {statusConfig[contact.status]?.label}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 hidden xl:table-cell">
-                        <span className="text-sm text-gray-500">
-                          {new Date(contact.addedAt).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <button className="p-1 rounded hover:bg-gray-100">
-                          <MoreHorizontal className="h-4 w-4 text-gray-400" />
-                        </button>
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={i} className="border-b border-gray-50 animate-pulse">
+                        <td className="px-4 py-3"><div className="h-4 w-4 bg-gray-200 rounded" /></td>
+                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-40" /></td>
+                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+                        <td className="px-4 py-3 hidden md:table-cell"><div className="h-4 bg-gray-200 rounded w-20" /></td>
+                        <td className="px-4 py-3 hidden lg:table-cell"><div className="h-4 bg-gray-200 rounded w-16" /></td>
+                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-16" /></td>
+                        <td className="px-4 py-3" />
+                      </tr>
+                    ))
+                  ) : contacts.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
+                        {search ? "No contacts match your search" : "No contacts yet. Import some to get started!"}
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    contacts.map((contact) => (
+                      <tr
+                        key={contact.id}
+                        className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors"
+                        onClick={() => setSelectedContact(contact)}
+                      >
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300 text-indigo-500"
+                            checked={selectedContacts.includes(contact.id)}
+                            onChange={() => toggleContact(contact.id)}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-medium text-gray-900">{contact.email}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-700">
+                            {contact.firstName} {contact.lastName}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 hidden md:table-cell">
+                          <span className="text-sm text-gray-500">{contact.company || "--"}</span>
+                        </td>
+                        <td className="px-4 py-3 hidden lg:table-cell">
+                          <div className="flex gap-1">
+                            {contact.tags.slice(0, 2).map((tag) => (
+                              <Badge key={tag} variant="secondary" className="text-[10px]">{tag}</Badge>
+                            ))}
+                            {contact.tags.length > 2 && (
+                              <span className="text-xs text-gray-400">+{contact.tags.length - 2}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <div className={`h-2 w-2 rounded-full ${statusConfig[contact.status]?.dot || "bg-gray-400"}`} />
+                            <span className={`text-xs font-medium ${statusConfig[contact.status]?.color || "text-gray-500"}`}>
+                              {statusConfig[contact.status]?.label || contact.status}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <button className="p-1 rounded hover:bg-gray-100">
+                            <MoreHorizontal className="h-4 w-4 text-gray-400" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
-            {/* Pagination */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
               <p className="text-sm text-gray-500">
-                Showing 1-{filteredContacts.length} of {filteredContacts.length} contacts
+                {contacts.length} contact{contacts.length !== 1 ? "s" : ""}
               </p>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm text-gray-700 px-2">1</span>
-                <Button variant="outline" size="sm" disabled>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
             </div>
           </Card>
         </TabsContent>
 
-        {/* Lists Tab */}
         <TabsContent value="lists">
           <div className="flex justify-between items-center mb-4">
-            <p className="text-sm text-gray-500">{mockLists.length} lists</p>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Create List
-            </Button>
+            <p className="text-sm text-gray-500">{lists.length} lists</p>
+            <Button size="sm"><Plus className="h-4 w-4 mr-1" />Create List</Button>
           </div>
           <Card>
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
+                <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">List Name</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Contacts</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Created</th>
-                  <th className="w-10 px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
-                {mockLists.map((list) => (
-                  <tr key={list.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-gray-900">{list.name}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-gray-600">{list.count.toLocaleString()}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-gray-500">{list.createdAt}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button className="p-1 rounded hover:bg-gray-100">
-                        <MoreHorizontal className="h-4 w-4 text-gray-400" />
-                      </button>
-                    </td>
+                {lists.map((list) => (
+                  <tr key={list.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{list.name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{list.contactCount.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{new Date(list.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -310,66 +357,25 @@ export default function AudiencePage() {
           </Card>
         </TabsContent>
 
-        {/* Segments Tab */}
-        <TabsContent value="segments">
-          <div className="flex justify-between items-center mb-4">
-            <p className="text-sm text-gray-500">{mockSegments.length} segments</p>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Create Segment
-            </Button>
-          </div>
-          <div className="space-y-3">
-            {mockSegments.map((segment) => (
-              <Card key={segment.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900">{segment.name}</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">{segment.conditions}</p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium text-gray-600">
-                      {segment.count.toLocaleString()} contacts
-                    </span>
-                    <button className="p-1 rounded hover:bg-gray-100">
-                      <MoreHorizontal className="h-4 w-4 text-gray-400" />
-                    </button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        {/* Tags Tab */}
         <TabsContent value="tags">
-          <div className="flex justify-between items-center mb-4">
-            <p className="text-sm text-gray-500">{mockTags.length} tags</p>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              Create Tag
-            </Button>
-          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {mockTags.map((tag) => (
-              <Card key={tag.name} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="h-3 w-3 rounded-full"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-900">{tag.name}</h3>
-                      <p className="text-xs text-gray-500">{tag.count} contacts</p>
+            {(() => {
+              const allTags = new Map<string, number>();
+              contacts.forEach((c) => c.tags.forEach((t) => allTags.set(t, (allTags.get(t) || 0) + 1)));
+              return Array.from(allTags.entries()).map(([tag, count]) => (
+                <Card key={tag} className="card-hover">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-3 w-3 rounded-full bg-indigo-500" />
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">{tag}</h3>
+                        <p className="text-xs text-gray-500">{count} contact{count !== 1 ? "s" : ""}</p>
+                      </div>
                     </div>
-                  </div>
-                  <button className="p-1 rounded hover:bg-gray-100">
-                    <MoreHorizontal className="h-4 w-4 text-gray-400" />
-                  </button>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              ));
+            })()}
           </div>
         </TabsContent>
       </Tabs>
@@ -380,34 +386,41 @@ export default function AudiencePage() {
           <DialogHeader>
             <DialogTitle>Add Contact</DialogTitle>
           </DialogHeader>
-          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); setShowAddContact(false); }}>
+          <form onSubmit={handleAddContact} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="contact-email">Email *</Label>
-              <Input id="contact-email" type="email" placeholder="email@example.com" required />
+              <Input
+                id="contact-email"
+                type="email"
+                placeholder="email@example.com"
+                required
+                value={addForm.email}
+                onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="contact-first">First Name</Label>
-                <Input id="contact-first" placeholder="First name" />
+                <Input id="contact-first" placeholder="First name" value={addForm.firstName} onChange={(e) => setAddForm({ ...addForm, firstName: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="contact-last">Last Name</Label>
-                <Input id="contact-last" placeholder="Last name" />
+                <Input id="contact-last" placeholder="Last name" value={addForm.lastName} onChange={(e) => setAddForm({ ...addForm, lastName: e.target.value })} />
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="contact-phone">Phone</Label>
-              <Input id="contact-phone" type="tel" placeholder="+1 555-0123" />
+              <Input id="contact-phone" type="tel" placeholder="+1 555-0123" value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="contact-company">Company</Label>
-              <Input id="contact-company" placeholder="Company name" />
+              <Input id="contact-company" placeholder="Company name" value={addForm.company} onChange={(e) => setAddForm({ ...addForm, company: e.target.value })} />
             </div>
             <DialogFooter>
-              <Button variant="outline" type="button" onClick={() => setShowAddContact(false)}>
-                Cancel
+              <Button variant="outline" type="button" onClick={() => setShowAddContact(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving..." : "Add Contact"}
               </Button>
-              <Button type="submit">Add Contact</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -416,27 +429,19 @@ export default function AudiencePage() {
       {/* Contact Detail Side Panel */}
       {selectedContact && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setSelectedContact(null)} />
-          <div className="relative w-full max-w-md bg-white shadow-xl overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedContact(null)} />
+          <div className="relative w-full max-w-md bg-white shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200">
+            <div className="sticky top-0 bg-white/90 backdrop-blur-sm border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
               <h3 className="font-semibold text-gray-900">Contact Details</h3>
-              <button
-                onClick={() => setSelectedContact(null)}
-                className="p-1 rounded hover:bg-gray-100"
-              >
-                <X className="h-5 w-5 text-gray-400" />
+              <button onClick={() => setSelectedContact(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <X className="h-4 w-4 text-gray-400" />
               </button>
             </div>
             <div className="p-6 space-y-6">
-              {/* Avatar & Basic Info */}
               <div className="text-center">
                 <div
-                  className="mx-auto h-20 w-20 rounded-full flex items-center justify-center text-white text-2xl font-bold"
-                  style={{
-                    backgroundColor: generateAvatarColor(
-                      `${selectedContact.firstName} ${selectedContact.lastName}`
-                    ),
-                  }}
+                  className="mx-auto h-20 w-20 rounded-2xl flex items-center justify-center text-white text-2xl font-bold"
+                  style={{ backgroundColor: generateAvatarColor(`${selectedContact.firstName} ${selectedContact.lastName}`) }}
                 >
                   {getInitials(`${selectedContact.firstName} ${selectedContact.lastName}`)}
                 </div>
@@ -453,42 +458,32 @@ export default function AudiencePage() {
               </div>
 
               <div className="flex gap-2 justify-center">
-                <Button variant="outline" size="sm">Edit Contact</Button>
-                <Button variant="destructive" size="sm">Delete</Button>
+                <Button variant="outline" size="sm">Edit</Button>
+                <Button variant="destructive" size="sm" onClick={() => handleDeleteContact(selectedContact.id)}>Delete</Button>
               </div>
 
-              {/* Details */}
               <div>
-                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3">Details</h4>
-                <dl className="space-y-2">
-                  <div className="flex justify-between">
-                    <dt className="text-sm text-gray-500">First Name</dt>
-                    <dd className="text-sm text-gray-900">{selectedContact.firstName}</dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-sm text-gray-500">Last Name</dt>
-                    <dd className="text-sm text-gray-900">{selectedContact.lastName}</dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-sm text-gray-500">Added</dt>
-                    <dd className="text-sm text-gray-900">
-                      {new Date(selectedContact.addedAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </dd>
-                  </div>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3 tracking-wider">Details</h4>
+                <dl className="space-y-2.5">
+                  {[
+                    { label: "Phone", value: selectedContact.phone || "--" },
+                    { label: "Company", value: selectedContact.company || "--" },
+                    { label: "Added", value: new Date(selectedContact.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between">
+                      <dt className="text-sm text-gray-500">{label}</dt>
+                      <dd className="text-sm text-gray-900 font-medium">{value}</dd>
+                    </div>
+                  ))}
                 </dl>
               </div>
 
-              {/* Lists */}
               <div>
-                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3">Lists</h4>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3 tracking-wider">Lists</h4>
                 {selectedContact.lists.length > 0 ? (
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     {selectedContact.lists.map((list) => (
-                      <div key={list} className="text-sm text-gray-700 flex items-center gap-2">
+                      <div key={list} className="text-sm text-gray-700 flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
                         <span className="text-gray-400">&#128203;</span> {list}
                       </div>
                     ))}
@@ -496,15 +491,10 @@ export default function AudiencePage() {
                 ) : (
                   <p className="text-sm text-gray-400">No lists</p>
                 )}
-                <Button variant="ghost" size="sm" className="mt-2 text-xs">
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add to List
-                </Button>
               </div>
 
-              {/* Tags */}
               <div>
-                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3">Tags</h4>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3 tracking-wider">Tags</h4>
                 {selectedContact.tags.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {selectedContact.tags.map((tag) => (
@@ -514,29 +504,14 @@ export default function AudiencePage() {
                 ) : (
                   <p className="text-sm text-gray-400">No tags</p>
                 )}
-                <Button variant="ghost" size="sm" className="mt-2 text-xs">
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add Tag
-                </Button>
               </div>
 
-              {/* Activity Timeline */}
               <div>
-                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3">Activity Timeline</h4>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-3 tracking-wider">Activity</h4>
                 <div className="space-y-3 border-l-2 border-gray-200 pl-4 ml-1">
                   <div className="relative">
                     <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
                     <p className="text-sm text-gray-700">{selectedContact.lastActivity}</p>
-                  </div>
-                  <div className="relative">
-                    <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-green-500" />
-                    <p className="text-sm text-gray-700">
-                      Subscribed - {new Date(selectedContact.addedAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </p>
                   </div>
                 </div>
               </div>

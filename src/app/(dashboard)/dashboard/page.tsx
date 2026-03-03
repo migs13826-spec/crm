@@ -6,101 +6,82 @@ import {
   Mail,
   Eye,
   MousePointerClick,
-  ArrowUpRight,
-  ArrowDownRight,
+  TrendingUp,
+  TrendingDown,
   FileText,
   Zap,
-  Plus,
+  ArrowRight,
+  Sparkles,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatPercentage } from "@/lib/utils";
 
-// Mock data for dashboard KPIs
 const kpiCards = [
   {
     title: "Total Contacts",
     value: 12847,
     delta: 12,
+    deltaLabel: "+1,542 this month",
     deltaPositive: true,
     icon: Users,
     format: "number" as const,
+    color: "from-blue-500 to-blue-600",
+    bg: "bg-blue-50",
+    iconColor: "text-blue-600",
   },
   {
     title: "Campaigns Sent",
     value: 34,
     delta: 5,
+    deltaLabel: "+5 this month",
     deltaPositive: true,
     icon: Mail,
     format: "number" as const,
+    color: "from-indigo-500 to-indigo-600",
+    bg: "bg-indigo-50",
+    iconColor: "text-indigo-600",
   },
   {
     title: "Avg Open Rate",
     value: 24.3,
     delta: 1.2,
+    deltaLabel: "vs. last 30 days",
     deltaPositive: true,
     icon: Eye,
     format: "percentage" as const,
+    color: "from-emerald-500 to-emerald-600",
+    bg: "bg-emerald-50",
+    iconColor: "text-emerald-600",
   },
   {
     title: "Avg Click Rate",
     value: 3.8,
     delta: -0.3,
+    deltaLabel: "vs. last 30 days",
     deltaPositive: false,
     icon: MousePointerClick,
     format: "percentage" as const,
+    color: "from-violet-500 to-violet-600",
+    bg: "bg-violet-50",
+    iconColor: "text-violet-600",
   },
 ];
 
 const recentCampaigns = [
-  {
-    id: "1",
-    name: "Summer Sale Announcement",
-    status: "sent",
-    openRate: 24.3,
-    sentDate: "2 days ago",
-    recipients: 8234,
-  },
-  {
-    id: "2",
-    name: "Product Update v3.2",
-    status: "draft",
-    openRate: null,
-    sentDate: null,
-    recipients: null,
-  },
-  {
-    id: "3",
-    name: "Weekly Newsletter #46",
-    status: "scheduled",
-    openRate: null,
-    sentDate: "Jun 15 at 10:00 AM",
-    recipients: 12847,
-  },
-  {
-    id: "4",
-    name: "Welcome Email Series",
-    status: "sent",
-    openRate: 45.2,
-    sentDate: "5 days ago",
-    recipients: 456,
-  },
-  {
-    id: "5",
-    name: "Flash Sale - 48hr Only",
-    status: "sent",
-    openRate: 19.1,
-    sentDate: "1 week ago",
-    recipients: 8234,
-  },
+  { id: "1", name: "Summer Sale Announcement", status: "sent", openRate: 24.3, sentDate: "2 days ago", recipients: "8.2K" },
+  { id: "2", name: "Product Update v3.2", status: "draft", openRate: null, sentDate: null, recipients: null },
+  { id: "3", name: "Weekly Newsletter #46", status: "scheduled", openRate: null, sentDate: "Jun 15", recipients: "12.8K" },
+  { id: "4", name: "Welcome Email Series", status: "sent", openRate: 45.2, sentDate: "5 days ago", recipients: "456" },
+  { id: "5", name: "Flash Sale - 48hr Only", status: "sent", openRate: 19.1, sentDate: "1 week ago", recipients: "8.2K" },
 ];
 
 const quickActions = [
-  { label: "Create Campaign", href: "/campaigns/new", icon: Mail },
-  { label: "Add Contacts", href: "/audience/import", icon: Users },
-  { label: "New Template", href: "/templates/new", icon: FileText },
-  { label: "New Automation", href: "/automations/new", icon: Zap },
+  { label: "Create Campaign", desc: "Send an email to your audience", href: "/campaigns/new", icon: Mail, color: "bg-indigo-50 text-indigo-600" },
+  { label: "Add Contacts", desc: "Import or add new contacts", href: "/audience/import", icon: Users, color: "bg-blue-50 text-blue-600" },
+  { label: "New Template", desc: "Design a reusable template", href: "/templates/new", icon: FileText, color: "bg-violet-50 text-violet-600" },
+  { label: "New Automation", desc: "Set up automated workflows", href: "/automations/new", icon: Zap, color: "bg-amber-50 text-amber-600" },
 ];
 
 const statusConfig: Record<string, { label: string; variant: "success" | "secondary" | "default" | "warning" }> = {
@@ -114,49 +95,59 @@ export default function DashboardPage() {
   const greeting = getGreeting();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 page-enter">
       {/* Greeting */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          {greeting}, User
-        </h1>
-        <p className="text-gray-500 mt-1">
-          Here&apos;s how your marketing is performing
-        </p>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {greeting}, User
+          </h1>
+          <p className="text-gray-500 mt-1 text-sm">
+            Here&apos;s what&apos;s happening with your marketing
+          </p>
+        </div>
+        <Link href="/campaigns/new">
+          <Button className="hidden sm:flex shadow-sm shadow-indigo-200">
+            <Sparkles className="h-4 w-4 mr-1.5" />
+            New Campaign
+          </Button>
+        </Link>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi) => (
-          <Card key={kpi.title} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-gray-500">{kpi.title}</p>
-                <kpi.icon className="h-5 w-5 text-gray-400" />
-              </div>
-              <div className="mt-3">
-                <p className="text-3xl font-bold text-gray-900">
-                  {kpi.format === "percentage"
-                    ? formatPercentage(kpi.value)
-                    : formatNumber(kpi.value)}
-                </p>
-                <div className="flex items-center gap-1 mt-1">
-                  {kpi.deltaPositive ? (
-                    <ArrowUpRight className="h-3.5 w-3.5 text-emerald-500" />
-                  ) : (
-                    <ArrowDownRight className="h-3.5 w-3.5 text-red-500" />
-                  )}
-                  <span
-                    className={`text-xs font-medium ${
-                      kpi.deltaPositive ? "text-emerald-600" : "text-red-600"
-                    }`}
-                  >
-                    {kpi.deltaPositive ? "+" : ""}
+          <Card key={kpi.title} className="card-hover overflow-hidden">
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between">
+                <div className="space-y-3">
+                  <p className="text-[13px] font-medium text-gray-500">{kpi.title}</p>
+                  <p className="text-2xl font-bold text-gray-900 tracking-tight">
                     {kpi.format === "percentage"
-                      ? formatPercentage(kpi.delta)
-                      : kpi.delta}
-                  </span>
-                  <span className="text-xs text-gray-400">vs last 30 days</span>
+                      ? formatPercentage(kpi.value)
+                      : formatNumber(kpi.value)}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    {kpi.deltaPositive ? (
+                      <div className="flex items-center gap-0.5 text-emerald-600">
+                        <TrendingUp className="h-3 w-3" />
+                        <span className="text-xs font-semibold">
+                          +{kpi.format === "percentage" ? formatPercentage(kpi.delta) : kpi.delta}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-0.5 text-red-500">
+                        <TrendingDown className="h-3 w-3" />
+                        <span className="text-xs font-semibold">
+                          {kpi.format === "percentage" ? formatPercentage(kpi.delta) : kpi.delta}
+                        </span>
+                      </div>
+                    )}
+                    <span className="text-[11px] text-gray-400">{kpi.deltaLabel}</span>
+                  </div>
+                </div>
+                <div className={`h-10 w-10 rounded-xl ${kpi.bg} flex items-center justify-center flex-shrink-0`}>
+                  <kpi.icon className={`h-5 w-5 ${kpi.iconColor}`} />
                 </div>
               </div>
             </CardContent>
@@ -165,19 +156,19 @@ export default function DashboardPage() {
       </div>
 
       {/* Charts and Recent Campaigns */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Email Performance Chart Placeholder */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* Email Performance Chart */}
+        <Card className="lg:col-span-3">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle>Email Performance</CardTitle>
-            <div className="flex gap-1">
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
               {["7d", "30d", "90d"].map((period) => (
                 <button
                   key={period}
-                  className={`px-3 py-1 text-xs font-medium rounded-md ${
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
                     period === "30d"
-                      ? "bg-indigo-100 text-indigo-700"
-                      : "text-gray-500 hover:bg-gray-100"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
                   {period}
@@ -186,56 +177,78 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="h-64 flex items-center justify-center text-gray-400 border border-dashed border-gray-200 rounded-lg">
-              <div className="text-center">
-                <BarChartPlaceholder />
-                <p className="mt-2 text-sm">
-                  Email performance chart will display here
-                </p>
-                <p className="text-xs text-gray-400">
-                  Connect Brevo API to see real data
-                </p>
+            <div className="h-56 flex items-center justify-center rounded-xl grid-bg">
+              <div className="text-center bg-white/80 backdrop-blur-sm rounded-xl p-6 shadow-sm border border-gray-100">
+                <div className="flex gap-6 mb-3 justify-center">
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full bg-blue-500" />
+                    <span className="text-xs text-gray-500">Sent</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <span className="text-xs text-gray-500">Opened</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-2 w-2 rounded-full bg-violet-500" />
+                    <span className="text-xs text-gray-500">Clicked</span>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500">Connect your Brevo account to see real data</p>
+                <Link href="/settings">
+                  <Button variant="outline" size="sm" className="mt-3 text-xs">
+                    Connect Brevo
+                  </Button>
+                </Link>
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Recent Campaigns */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle>Recent Campaigns</CardTitle>
             <Link href="/campaigns">
-              <Button variant="ghost" size="sm" className="text-xs">
+              <Button variant="ghost" size="sm" className="text-xs text-gray-500 hover:text-gray-800 -mr-2">
                 View All
+                <ArrowRight className="h-3 w-3 ml-1" />
               </Button>
             </Link>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-1">
             {recentCampaigns.slice(0, 5).map((campaign) => (
               <Link
                 key={campaign.id}
-                href={`/campaigns/${campaign.id}/report`}
-                className="flex items-center justify-between py-2 hover:bg-gray-50 -mx-2 px-2 rounded-md transition-colors"
+                href={campaign.status === "sent" ? `/campaigns/${campaign.id}/report` : `/campaigns/${campaign.id}/edit`}
+                className="flex items-center justify-between py-2.5 px-2 -mx-2 rounded-xl hover:bg-gray-50/80 transition-colors group"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900 truncate">
+                  <p className="text-sm font-medium text-gray-900 truncate group-hover:text-indigo-700 transition-colors">
                     {campaign.name}
                   </p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Badge variant={statusConfig[campaign.status].variant} className="text-[10px] py-0">
+                    <Badge variant={statusConfig[campaign.status].variant} className="text-[10px] py-0 px-1.5">
                       {statusConfig[campaign.status].label}
                     </Badge>
                     {campaign.sentDate && (
-                      <span className="text-xs text-gray-400">
+                      <span className="text-[11px] text-gray-400">
                         {campaign.sentDate}
+                      </span>
+                    )}
+                    {campaign.recipients && (
+                      <span className="text-[11px] text-gray-400">
+                        {campaign.recipients}
                       </span>
                     )}
                   </div>
                 </div>
                 {campaign.openRate !== null && (
-                  <span className="text-sm font-medium text-gray-600 ml-3">
-                    {formatPercentage(campaign.openRate)}
-                  </span>
+                  <div className="ml-3 text-right flex-shrink-0">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {formatPercentage(campaign.openRate)}
+                    </span>
+                    <p className="text-[10px] text-gray-400">open rate</p>
+                  </div>
                 )}
               </Link>
             ))}
@@ -243,41 +256,28 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Audience Growth + Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Audience Growth Chart Placeholder */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Audience Growth</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-52 flex items-center justify-center text-gray-400 border border-dashed border-gray-200 rounded-lg">
-              <div className="text-center">
-                <AreaChartPlaceholder />
-                <p className="mt-2 text-sm">
-                  Audience growth chart will display here
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {quickActions.map((action) => (
-              <Link key={action.href} href={action.href}>
-                <button className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-l-2 hover:border-l-indigo-500 transition-all text-left">
-                  <action.icon className="h-5 w-5" />
-                  {action.label}
-                </button>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
+      {/* Quick Actions */}
+      <div>
+        <h2 className="text-base font-semibold text-gray-900 mb-3">Quick Actions</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {quickActions.map((action) => (
+            <Link key={action.href} href={action.href}>
+              <Card className="card-hover group cursor-pointer h-full">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className={`h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 ${action.color} transition-transform group-hover:scale-110`}>
+                    <action.icon className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 group-hover:text-indigo-700 transition-colors">
+                      {action.label}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">{action.desc}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -288,24 +288,4 @@ function getGreeting() {
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
   return "Good evening";
-}
-
-function BarChartPlaceholder() {
-  return (
-    <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 48 48">
-      <rect x="6" y="24" width="6" height="18" rx="1" fill="#E5E7EB" />
-      <rect x="15" y="16" width="6" height="26" rx="1" fill="#C7D2FE" />
-      <rect x="24" y="20" width="6" height="22" rx="1" fill="#E5E7EB" />
-      <rect x="33" y="12" width="6" height="30" rx="1" fill="#C7D2FE" />
-    </svg>
-  );
-}
-
-function AreaChartPlaceholder() {
-  return (
-    <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 48 48">
-      <path d="M6 36L14 28L22 32L30 20L42 24V42H6V36Z" fill="#EEF2FF" stroke="#C7D2FE" strokeWidth="1" />
-      <path d="M6 36L14 28L22 32L30 20L42 24" fill="none" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
 }

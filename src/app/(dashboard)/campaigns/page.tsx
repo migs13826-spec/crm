@@ -27,6 +27,8 @@ const statusConfig: Record<string, { label: string; variant: "success" | "second
   draft: { label: "Draft", variant: "secondary", icon: FileEdit },
   scheduled: { label: "Scheduled", variant: "default", icon: Clock },
   sending: { label: "Sending", variant: "warning", icon: Send },
+  paused: { label: "Paused", variant: "warning", icon: Clock },
+  archived: { label: "Archived", variant: "secondary", icon: FileEdit },
 };
 
 const tabs = [
@@ -41,6 +43,7 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/campaigns")

@@ -19,13 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { getInitials, generateAvatarColor } from "@/lib/utils";
 
@@ -56,6 +50,8 @@ const statusConfig: Record<string, { label: string; color: string; dot: string }
   bounced: { label: "Bounced", color: "text-amber-700", dot: "bg-amber-500" },
   blacklisted: { label: "Blacklisted", color: "text-gray-700", dot: "bg-gray-900" },
 };
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 export default function AudiencePage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -141,11 +137,18 @@ export default function AudiencePage() {
     fetchContacts();
   };
 
-  const toggleContact = (id: string) => {
-    setSelectedContacts((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
-    );
-  };
+  const filteredContacts = useMemo(() => contacts.filter(
+    (c) => c.email.toLowerCase().includes(search.toLowerCase()) || c.firstName.toLowerCase().includes(search.toLowerCase()) || c.lastName.toLowerCase().includes(search.toLowerCase())
+  ), [contacts, search]);
+
+  const totalContacts = filteredContacts.length;
+  const totalPages = Math.max(1, Math.ceil(totalContacts / pageSize));
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalContacts);
+  const paginatedContacts = filteredContacts.slice(startIndex, endIndex);
+
+  const handleSearchChange = (v: string) => { setSearch(v); setCurrentPage(1); };
+  const handlePageSizeChange = (n: number) => { setPageSize(n); setCurrentPage(1); };
 
   const toggleAll = () => {
     if (selectedContacts.length === contacts.length) {
@@ -153,6 +156,40 @@ export default function AudiencePage() {
     } else {
       setSelectedContacts(contacts.map((c) => c.id));
     }
+    return pages;
+  };
+
+  const toggleContact = (id: string) => setSelectedContacts((p) => p.includes(id) ? p.filter((c) => c !== id) : [...p, id]);
+  const allOnPageSelected = paginatedContacts.length > 0 && paginatedContacts.every((c) => selectedContacts.includes(c.id));
+  const toggleAllOnPage = () => {
+    const ids = paginatedContacts.map((c) => c.id);
+    if (allOnPageSelected) setSelectedContacts((p) => p.filter((id) => !ids.includes(id)));
+    else setSelectedContacts((p) => [...new Set([...p, ...ids])]);
+  };
+
+  const handleAddContact = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newContact.email) return;
+    addContact({ email: newContact.email, firstName: newContact.firstName, lastName: newContact.lastName, phone: newContact.phone, company: newContact.company, lists: [], tags: [], status: "subscribed" });
+    setNewContact({ email: "", firstName: "", lastName: "", phone: "", company: "" });
+    setShowAddContact(false);
+  };
+
+  const handleDeleteSelected = () => {
+    deleteContacts(selectedContacts);
+    setSelectedContacts([]);
+  };
+
+  const handleValidateEmails = async () => {
+    const emails = contacts.filter((c) => selectedContacts.includes(c.id)).map((c) => c.email);
+    if (!emails.length) return;
+    setShowValidation(true); setValidating(true); setValidationProgress(0); setValidationResults(null);
+    try {
+      const iv = setInterval(() => setValidationProgress((p) => Math.min(p + 15, 90)), 200);
+      const res = await fetch("/api/contacts/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ emails }) });
+      clearInterval(iv); setValidationProgress(100);
+      if (res.ok) setValidationResults(await res.json());
+    } catch (e) { console.error(e); } finally { setValidating(false); }
   };
 
   return (
@@ -166,20 +203,9 @@ export default function AudiencePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowAddContact(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add Contact
-          </Button>
-          <Link href="/audience/import">
-            <Button variant="outline" size="sm">
-              <Upload className="h-4 w-4 mr-1" />
-              Import
-            </Button>
-          </Link>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-1" />
-            Export
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowAddContact(true)}><Plus className="h-4 w-4 mr-1" />Add Contact</Button>
+          <Link href="/audience/import"><Button variant="outline" size="sm"><Upload className="h-4 w-4 mr-1" />Import</Button></Link>
+          <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export</Button>
         </div>
       </div>
 
@@ -195,19 +221,13 @@ export default function AudiencePage() {
           <div className="flex items-center gap-3 mb-4">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search by email, name, or tag..."
-                className="pl-9"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+              <Input placeholder="Search by email, name..." className="pl-9" value={search} onChange={(e) => handleSearchChange(e.target.value)} />
             </div>
             <Button variant="ghost" size="sm" onClick={() => fetchContacts()}>
               <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
 
-          {/* Bulk Actions */}
           {selectedContacts.length > 0 && (
             <div className="flex items-center gap-3 mb-4 p-3 bg-indigo-50 rounded-xl border border-indigo-200">
               <span className="text-sm font-medium text-indigo-700">
@@ -351,10 +371,10 @@ export default function AudiencePage() {
                     <td className="px-4 py-3 text-sm text-gray-600">{list.contactCount.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{new Date(list.createdAt).toLocaleDateString()}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+                ))}</tbody>
+              </table>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="tags">
@@ -377,6 +397,16 @@ export default function AudiencePage() {
               ));
             })()}
           </div>
+          {tags.length === 0 ? (
+            <Card><CardContent className="py-12 text-center"><p className="text-sm text-gray-500">No tags yet.</p><Button size="sm" className="mt-3" onClick={() => setShowAddTag(true)}>Create Tag</Button></CardContent></Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{tags.map((tag) => (
+              <Card key={tag.name}><CardContent className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3"><div className="h-3 w-3 rounded-full" style={{ backgroundColor: tag.color }} /><div><h3 className="text-sm font-semibold text-gray-900">{tag.name}</h3><p className="text-xs text-gray-500">{tag.count} contacts</p></div></div>
+                <button className="p-1 rounded hover:bg-gray-100" onClick={() => deleteTag(tag.name)}><Trash2 className="h-4 w-4 text-gray-400 hover:text-red-500" /></button>
+              </CardContent></Card>
+            ))}</div>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -426,6 +456,47 @@ export default function AudiencePage() {
         </DialogContent>
       </Dialog>
 
+      {/* Add List Dialog */}
+      <Dialog open={showAddList} onOpenChange={setShowAddList}>
+        <DialogContent className="sm:max-w-[400px]"><DialogHeader><DialogTitle>Create List</DialogTitle></DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); if (newListName) { addList(newListName); setNewListName(""); setShowAddList(false); } }}>
+            <div className="space-y-2 mb-4"><Label>List Name</Label><Input placeholder="e.g., Newsletter Subscribers" value={newListName} onChange={(e) => setNewListName(e.target.value)} required /></div>
+            <DialogFooter><Button variant="outline" type="button" onClick={() => setShowAddList(false)}>Cancel</Button><Button type="submit">Create</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Tag Dialog */}
+      <Dialog open={showAddTag} onOpenChange={setShowAddTag}>
+        <DialogContent className="sm:max-w-[400px]"><DialogHeader><DialogTitle>Create Tag</DialogTitle></DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); if (newTagName) { addTag(newTagName, newTagColor); setNewTagName(""); setShowAddTag(false); } }}>
+            <div className="space-y-2 mb-3"><Label>Tag Name</Label><Input placeholder="e.g., VIP" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} required /></div>
+            <div className="space-y-2 mb-4"><Label>Color</Label><div className="flex gap-2">{["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#EC4899","#6B7280"].map((c) => (<button key={c} type="button" className={`h-8 w-8 rounded-full border-2 ${newTagColor === c ? "border-gray-900" : "border-transparent"}`} style={{ backgroundColor: c }} onClick={() => setNewTagColor(c)} />))}</div></div>
+            <DialogFooter><Button variant="outline" type="button" onClick={() => setShowAddTag(false)}>Cancel</Button><Button type="submit">Create</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Validation Dialog */}
+      <Dialog open={showValidation} onOpenChange={setShowValidation}>
+        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-indigo-500" />Email Validation</DialogTitle><DialogDescription>Validating {selectedContacts.length} emails</DialogDescription></DialogHeader>
+          {validating && !validationResults && (<div className="py-8 space-y-4 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" /><p className="text-sm text-gray-600">Validating...</p><Progress value={validationProgress} className="max-w-xs mx-auto" /></div>)}
+          {validationResults && (<div className="space-y-4 overflow-hidden flex flex-col flex-1">
+            <div className="grid grid-cols-4 gap-3">
+              <div className="rounded-lg bg-gray-50 p-3 text-center"><p className="text-2xl font-bold text-gray-900">{validationResults.summary.total}</p><p className="text-xs text-gray-500">Total</p></div>
+              <div className="rounded-lg bg-emerald-50 p-3 text-center"><p className="text-2xl font-bold text-emerald-600">{validationResults.summary.valid}</p><p className="text-xs text-emerald-600">Valid</p></div>
+              <div className="rounded-lg bg-amber-50 p-3 text-center"><p className="text-2xl font-bold text-amber-600">{validationResults.summary.risky}</p><p className="text-xs text-amber-600">Risky</p></div>
+              <div className="rounded-lg bg-red-50 p-3 text-center"><p className="text-2xl font-bold text-red-600">{validationResults.summary.invalid}</p><p className="text-xs text-red-600">Invalid</p></div>
+            </div>
+            <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg"><table className="w-full"><thead className="sticky top-0"><tr className="bg-gray-50 border-b"><th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Status</th><th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Email</th><th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Reason</th></tr></thead>
+              <tbody>{validationResults.results.map((r, i) => (<tr key={i} className="border-b border-gray-50"><td className="px-3 py-2">{r.valid && r.riskLevel === "low" ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : r.valid ? <AlertTriangle className="h-4 w-4 text-amber-500" /> : <XCircle className="h-4 w-4 text-red-500" />}</td><td className="px-3 py-2 text-sm font-mono text-gray-900">{r.email}{r.suggestion && <p className="text-xs text-indigo-500">Suggestion: {r.suggestion}</p>}</td><td className="px-3 py-2 text-xs text-gray-600">{r.reason}</td></tr>))}</tbody>
+            </table></div>
+          </div>)}
+          <DialogFooter><Button onClick={() => setShowValidation(false)}>{validating ? "Cancel" : "Close"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Contact Detail Side Panel */}
       {selectedContact && (
         <div className="fixed inset-0 z-50 flex justify-end">
@@ -449,14 +520,8 @@ export default function AudiencePage() {
                   {selectedContact.firstName} {selectedContact.lastName}
                 </h2>
                 <p className="text-sm text-gray-500">{selectedContact.email}</p>
-                <div className="flex items-center justify-center gap-1.5 mt-2">
-                  <div className={`h-2 w-2 rounded-full ${statusConfig[selectedContact.status]?.dot}`} />
-                  <span className={`text-sm ${statusConfig[selectedContact.status]?.color}`}>
-                    {statusConfig[selectedContact.status]?.label}
-                  </span>
-                </div>
+                <div className="flex items-center justify-center gap-1.5 mt-2"><div className={`h-2 w-2 rounded-full ${statusConfig[selectedContact.status]?.dot}`} /><span className={`text-sm ${statusConfig[selectedContact.status]?.color}`}>{statusConfig[selectedContact.status]?.label}</span></div>
               </div>
-
               <div className="flex gap-2 justify-center">
                 <Button variant="outline" size="sm">Edit</Button>
                 <Button variant="destructive" size="sm" onClick={() => handleDeleteContact(selectedContact.id)}>Delete</Button>
@@ -522,3 +587,4 @@ export default function AudiencePage() {
     </div>
   );
 }
+

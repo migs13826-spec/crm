@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatNumber, formatPercentage } from "@/lib/utils";
+import { useAppStore } from "@/lib/store";
 
 interface DashboardData {
   totalContacts: number;
@@ -41,13 +42,6 @@ const quickActions = [
   { label: "New Template", desc: "Design a reusable template", href: "/templates/new", icon: FileText, color: "bg-violet-50 text-violet-600" },
   { label: "New Automation", desc: "Set up automated workflows", href: "/automations/new", icon: Zap, color: "bg-amber-50 text-amber-600" },
 ];
-
-const statusConfig: Record<string, { label: string; variant: "success" | "secondary" | "default" | "warning" }> = {
-  sent: { label: "Sent", variant: "success" },
-  draft: { label: "Draft", variant: "secondary" },
-  scheduled: { label: "Scheduled", variant: "default" },
-  sending: { label: "Sending", variant: "warning" },
-};
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);

@@ -136,7 +136,7 @@ export function Navbar({ user }: NavbarProps) {
                       className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       onClick={() => {
                         setUserMenuOpen(false);
-                        // signOut will be called
+                        window.location.href = "/login";
                       }}
                     >
                       <LogOut className="h-4 w-4" />

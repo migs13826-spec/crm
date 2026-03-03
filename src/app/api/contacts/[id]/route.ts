@@ -1,30 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getContact, updateContact, deleteContact } from "@/lib/store";
+import prisma from "@/lib/prisma";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const contact = getContact(id);
-  if (!contact) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+  try {
+    const contact = await prisma.contactCache.findUnique({ where: { id } });
+    if (!contact) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ contact });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to fetch contact" }, { status: 500 });
   }
-  return NextResponse.json({ contact });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json();
-  const contact = updateContact(id, body);
-  if (!contact) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+  try {
+    const body = await req.json();
+    const contact = await prisma.contactCache.update({
+      where: { id },
+      data: {
+        ...(body.email && { email: body.email }),
+        ...(body.firstName !== undefined && { firstName: body.firstName }),
+        ...(body.lastName !== undefined && { lastName: body.lastName }),
+        ...(body.phone !== undefined && { phone: body.phone }),
+        ...(body.company !== undefined && { company: body.company }),
+        ...(body.tags && { tags: body.tags }),
+        ...(body.lists && { listIds: body.lists }),
+        ...(body.status && { status: body.status }),
+      },
+    });
+    return NextResponse.json({ contact });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to update contact" }, { status: 500 });
   }
-  return NextResponse.json({ contact });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const success = deleteContact(id);
-  if (!success) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+  try {
+    await prisma.contactCache.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to delete contact" }, { status: 500 });
   }
-  return NextResponse.json({ success: true });
 }

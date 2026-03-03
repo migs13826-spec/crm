@@ -29,14 +29,14 @@ async function main() {
 
   // Seed contacts
   const contacts = [
-    { email: "sarah@example.com", firstName: "Sarah", lastName: "Lee", phone: "+1 555-0101", company: "Acme Corp", lists: ["Newsletter Subscribers", "VIP Customers"], tags: ["VIP", "Engaged"], status: "subscribed" },
-    { email: "john@example.com", firstName: "John", lastName: "Smith", phone: "+1 555-0102", company: "TechStart Inc", lists: ["Newsletter Subscribers"], tags: ["New"], status: "subscribed" },
-    { email: "jane@example.com", firstName: "Jane", lastName: "Doe", phone: "", company: "Design Co", lists: ["Newsletter Subscribers"], tags: [], status: "unsubscribed" },
-    { email: "mike@example.com", firstName: "Mike", lastName: "Brown", phone: "+1 555-0104", company: "", lists: [], tags: ["Enterprise"], status: "subscribed" },
-    { email: "emma@example.com", firstName: "Emma", lastName: "Wilson", phone: "+1 555-0105", company: "Growth Labs", lists: ["VIP Customers"], tags: ["VIP"], status: "subscribed" },
-    { email: "alex@example.com", firstName: "Alex", lastName: "Johnson", phone: "", company: "Startup XYZ", lists: ["Newsletter Subscribers", "Product Updates"], tags: [], status: "bounced" },
-    { email: "priya@example.com", firstName: "Priya", lastName: "Sharma", phone: "+1 555-0107", company: "DataFlow", lists: ["Newsletter Subscribers"], tags: ["Engaged"], status: "subscribed" },
-    { email: "marcus@example.com", firstName: "Marcus", lastName: "Chen", phone: "+1 555-0108", company: "RetailHub", lists: ["VIP Customers", "Newsletter Subscribers"], tags: ["VIP", "Enterprise"], status: "subscribed" },
+    { email: "sarah.lee@acme-corp.dev", firstName: "Sarah", lastName: "Lee", phone: "+1 555-0101", company: "Acme Corp", lists: ["Newsletter Subscribers", "VIP Customers"], tags: ["VIP", "Engaged"], status: "subscribed" },
+    { email: "john.smith@techstart.dev", firstName: "John", lastName: "Smith", phone: "+1 555-0102", company: "TechStart Inc", lists: ["Newsletter Subscribers"], tags: ["New"], status: "subscribed" },
+    { email: "jane.doe@designco.dev", firstName: "Jane", lastName: "Doe", phone: "", company: "Design Co", lists: ["Newsletter Subscribers"], tags: [], status: "unsubscribed" },
+    { email: "mike.brown@gmail.com", firstName: "Mike", lastName: "Brown", phone: "+1 555-0104", company: "", lists: [], tags: ["Enterprise"], status: "subscribed" },
+    { email: "emma.wilson@outlook.com", firstName: "Emma", lastName: "Wilson", phone: "+1 555-0105", company: "Growth Labs", lists: ["VIP Customers"], tags: ["VIP"], status: "subscribed" },
+    { email: "alex.johnson@yahoo.com", firstName: "Alex", lastName: "Johnson", phone: "", company: "Startup XYZ", lists: ["Newsletter Subscribers", "Product Updates"], tags: [], status: "bounced" },
+    { email: "priya.sharma@dataflow.dev", firstName: "Priya", lastName: "Sharma", phone: "+1 555-0107", company: "DataFlow", lists: ["Newsletter Subscribers"], tags: ["Engaged"], status: "subscribed" },
+    { email: "marcus.chen@retailhub.dev", firstName: "Marcus", lastName: "Chen", phone: "+1 555-0108", company: "RetailHub", lists: ["VIP Customers", "Newsletter Subscribers"], tags: ["VIP", "Enterprise"], status: "subscribed" },
   ];
 
   for (const c of contacts) {

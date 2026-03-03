@@ -193,6 +193,154 @@ function resolveSoa(domain: string): Promise<dns.SoaRecord | null> {
   });
 }
 
+// ========== DNS-over-HTTPS Fallback ==========
+// Uses Cloudflare and Google public DNS APIs as fallback when local DNS fails.
+// This handles environments with restricted DNS resolvers (corporate networks,
+// certain cloud environments, etc.) that can't resolve all domains.
+
+interface DohMxRecord {
+  exchange: string;
+  priority: number;
+}
+
+async function resolveMxViaDoH(domain: string): Promise<DohMxRecord[]> {
+  const endpoints = [
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=MX`,
+    `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=MX`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(url, {
+        headers: { Accept: "application/dns-json" },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      // Status 0 = NOERROR, 3 = NXDOMAIN
+      if (data.Status === 3) {
+        throw Object.assign(new Error("NXDOMAIN"), { code: "ENOTFOUND" });
+      }
+
+      if (data.Answer && Array.isArray(data.Answer)) {
+        const mxRecords: DohMxRecord[] = [];
+        for (const ans of data.Answer) {
+          if (ans.type === 15) {
+            // MX record data format: "priority exchange."
+            const parts = (ans.data as string).split(/\s+/);
+            if (parts.length >= 2) {
+              mxRecords.push({
+                priority: parseInt(parts[0], 10),
+                exchange: parts[1].replace(/\.$/, ""), // Remove trailing dot
+              });
+            }
+          }
+        }
+        return mxRecords;
+      }
+
+      // No MX answers but no error - domain exists with no MX
+      return [];
+    } catch (err) {
+      // Re-throw NXDOMAIN, continue on network errors
+      if ((err as { code?: string }).code === "ENOTFOUND") throw err;
+      continue;
+    }
+  }
+
+  // All DoH endpoints failed - throw to let caller handle
+  throw Object.assign(new Error("DoH lookup failed"), { code: "DOH_FAILED" });
+}
+
+async function resolveAViaDoH(domain: string): Promise<string[]> {
+  const endpoints = [
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=A`,
+    `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=A`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(url, {
+        headers: { Accept: "application/dns-json" },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      if (data.Status === 3) {
+        throw Object.assign(new Error("NXDOMAIN"), { code: "ENOTFOUND" });
+      }
+
+      if (data.Answer && Array.isArray(data.Answer)) {
+        return data.Answer
+          .filter((ans: { type: number }) => ans.type === 1)
+          .map((ans: { data: string }) => ans.data);
+      }
+
+      return [];
+    } catch (err) {
+      if ((err as { code?: string }).code === "ENOTFOUND") throw err;
+      continue;
+    }
+  }
+
+  throw Object.assign(new Error("DoH lookup failed"), { code: "DOH_FAILED" });
+}
+
+// Resilient MX resolution: tries local DNS first, falls back to DoH
+async function resolveMxResilient(
+  domain: string
+): Promise<{ mxRecords: dns.MxRecord[] | DohMxRecord[]; source: "local" | "doh" }> {
+  try {
+    const records = await resolveMx(domain);
+    return { mxRecords: records, source: "local" };
+  } catch (localErr) {
+    const code = (localErr as { code?: string }).code;
+    // ENOTFOUND from local DNS is definitive (NXDOMAIN) — no need to retry
+    if (code === "ENOTFOUND") throw localErr;
+
+    // For ESERVFAIL, ETIMEOUT, ENODATA, etc. — try DoH as fallback
+    try {
+      const records = await resolveMxViaDoH(domain);
+      return { mxRecords: records, source: "doh" };
+    } catch (dohErr) {
+      // If DoH confirms NXDOMAIN, use that
+      if ((dohErr as { code?: string }).code === "ENOTFOUND") throw dohErr;
+      // Otherwise re-throw the original local error
+      throw localErr;
+    }
+  }
+}
+
+async function resolveAResilient(
+  domain: string
+): Promise<{ aRecords: string[]; source: "local" | "doh" }> {
+  try {
+    const records = await resolveA(domain);
+    return { aRecords: records, source: "local" };
+  } catch (localErr) {
+    const code = (localErr as { code?: string }).code;
+    if (code === "ENOTFOUND") throw localErr;
+
+    try {
+      const records = await resolveAViaDoH(domain);
+      return { aRecords: records, source: "doh" };
+    } catch (dohErr) {
+      if ((dohErr as { code?: string }).code === "ENOTFOUND") throw dohErr;
+      throw localErr;
+    }
+  }
+}
+
 // ========== SMTP Verification ==========
 
 interface SmtpCheckResult {
@@ -487,18 +635,18 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
     return baseResult;
   }
 
-  // DNS MX lookup
-  let mxRecords: dns.MxRecord[] = [];
+  // DNS MX lookup (with DoH fallback for restricted environments)
   let dnsError: NodeJS.ErrnoException | null = null;
   try {
-    mxRecords = await resolveMx(domain);
-    // Filter out null MX records (RFC 7505): an MX with empty exchange (or ".")
-    // signals the domain explicitly does NOT accept email
-    const validMxRecords = mxRecords.filter(
+    const { mxRecords } = await resolveMxResilient(domain);
+
+    // Filter out null MX records (RFC 7505): empty exchange or "." means
+    // the domain explicitly does NOT accept email
+    const validRecords = mxRecords.filter(
       (r) => r.exchange && r.exchange !== "."
     );
 
-    if (validMxRecords.length === 0 && mxRecords.length > 0) {
+    if (validRecords.length === 0 && mxRecords.length > 0) {
       // Domain has null MX only — explicitly rejects email
       baseResult.status = "invalid";
       baseResult.subStatus = "null_mx";
@@ -506,17 +654,16 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
       return baseResult;
     }
 
-    if (validMxRecords.length > 0) {
+    if (validRecords.length > 0) {
       baseResult.mxFound = true;
-      // Sort by priority (lower = higher priority)
-      validMxRecords.sort((a, b) => a.priority - b.priority);
-      baseResult.mxRecord = validMxRecords[0].exchange;
+      validRecords.sort((a, b) => a.priority - b.priority);
+      baseResult.mxRecord = validRecords[0].exchange;
     }
   } catch (err) {
     dnsError = err as NodeJS.ErrnoException;
-    // Try A record as fallback
+    // Try A record as fallback (also with DoH)
     try {
-      const aRecords = await resolveA(domain);
+      const { aRecords } = await resolveAResilient(domain);
       if (aRecords.length > 0) {
         baseResult.mxFound = true;
         baseResult.mxRecord = aRecords[0];
@@ -528,17 +675,22 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
   }
 
   if (!baseResult.mxFound) {
-    // Distinguish between "domain doesn't exist" and "DNS network error"
     const code = dnsError?.code;
-    if (code === "ENOTFOUND" || code === "ENODATA" || code === "ESERVFAIL") {
-      // Domain genuinely doesn't exist or has no records
+    if (code === "ENOTFOUND") {
+      // NXDOMAIN — domain genuinely does not exist
       baseResult.status = "invalid";
-      baseResult.subStatus = code === "ENOTFOUND" ? "domain_not_found" : "no_mx_records";
+      baseResult.subStatus = "domain_not_found";
       baseResult.score = 0;
       return baseResult;
     }
-    // DNS timeout, network error, or other transient issue
-    // Don't mark as invalid -- we can't be sure
+    if (code === "ENODATA") {
+      // Domain exists but has no mail records at all
+      baseResult.status = "invalid";
+      baseResult.subStatus = "no_mx_records";
+      baseResult.score = 0;
+      return baseResult;
+    }
+    // ESERVFAIL, ETIMEOUT, network errors, etc. — can't determine
     baseResult.status = "unknown";
     baseResult.subStatus = `dns_error_${code || "unknown"}`;
     baseResult.score = 30;
@@ -714,28 +866,27 @@ export async function validateEmailQuick(email: string): Promise<EmailValidation
 
   const isRoleBased = roleAddresses.has(localPart);
 
-  // DNS MX lookup only (no SMTP)
+  // DNS MX lookup only — no SMTP (with DoH fallback for restricted environments)
   let quickDnsError: NodeJS.ErrnoException | null = null;
   try {
-    const mxRecords = await resolveMx(domain);
-    // Filter out null MX records (RFC 7505): an MX with empty exchange (or ".")
-    // signals the domain explicitly does NOT accept email
-    const validMxRecords = mxRecords.filter(
+    const { mxRecords } = await resolveMxResilient(domain);
+
+    // Filter out null MX records (RFC 7505)
+    const validRecords = mxRecords.filter(
       (r) => r.exchange && r.exchange !== "."
     );
 
-    if (validMxRecords.length === 0 && mxRecords.length > 0) {
-      // Domain has null MX only — explicitly rejects email
+    if (validRecords.length === 0 && mxRecords.length > 0) {
       baseResult.status = "invalid";
       baseResult.subStatus = "null_mx";
       baseResult.score = 0;
       return baseResult;
     }
 
-    if (validMxRecords.length > 0) {
+    if (validRecords.length > 0) {
       baseResult.mxFound = true;
-      validMxRecords.sort((a, b) => a.priority - b.priority);
-      baseResult.mxRecord = validMxRecords[0].exchange;
+      validRecords.sort((a, b) => a.priority - b.priority);
+      baseResult.mxRecord = validRecords[0].exchange;
       baseResult.smtpProvider = detectSmtpProvider(baseResult.mxRecord, null);
       baseResult.status = "valid";
       baseResult.subStatus = isRoleBased ? "role_based" : "mx_found";
@@ -743,7 +894,7 @@ export async function validateEmailQuick(email: string): Promise<EmailValidation
   } catch (err) {
     quickDnsError = err as NodeJS.ErrnoException;
     try {
-      const aRecords = await resolveA(domain);
+      const { aRecords } = await resolveAResilient(domain);
       if (aRecords.length > 0) {
         baseResult.mxFound = true;
         baseResult.mxRecord = aRecords[0];
@@ -758,11 +909,14 @@ export async function validateEmailQuick(email: string): Promise<EmailValidation
 
   if (!baseResult.mxFound && quickDnsError) {
     const code = quickDnsError.code;
-    if (code === "ENOTFOUND" || code === "ENODATA" || code === "ESERVFAIL") {
+    if (code === "ENOTFOUND") {
       baseResult.status = "invalid";
-      baseResult.subStatus = code === "ENOTFOUND" ? "domain_not_found" : "no_mx_records";
+      baseResult.subStatus = "domain_not_found";
+    } else if (code === "ENODATA") {
+      baseResult.status = "invalid";
+      baseResult.subStatus = "no_mx_records";
     } else {
-      // Network error, timeout, etc. - can't determine
+      // ESERVFAIL, ETIMEOUT, network errors — can't determine
       baseResult.status = "unknown";
       baseResult.subStatus = `dns_error_${code || "unknown"}`;
       baseResult.score = 30;

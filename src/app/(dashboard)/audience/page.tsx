@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -11,7 +11,11 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  UserPlus,
+  ShieldCheck,
+  CheckCircle,
+  AlertTriangle,
+  XCircle,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,19 +28,60 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { getInitials, generateAvatarColor, formatRelativeTime } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
+import { getInitials, generateAvatarColor } from "@/lib/utils";
+import type { EmailValidationResult } from "@/lib/email-validation";
 
-// Mock data
-const mockContacts = [
-  { id: "1", email: "sarah@example.com", firstName: "Sarah", lastName: "Lee", lists: ["Newsletter", "VIP"], tags: ["VIP", "Engaged"], status: "subscribed", addedAt: "2025-01-15T10:00:00Z", lastActivity: "Opened 'Summer Sale' - 2h ago" },
-  { id: "2", email: "john@example.com", firstName: "John", lastName: "Smith", lists: ["Newsletter"], tags: ["New"], status: "subscribed", addedAt: "2025-02-10T10:00:00Z", lastActivity: "Clicked link - 1d ago" },
-  { id: "3", email: "jane@example.com", firstName: "Jane", lastName: "Doe", lists: ["Newsletter"], tags: [], status: "unsubscribed", addedAt: "2025-01-20T10:00:00Z", lastActivity: "Unsubscribed - 3d ago" },
-  { id: "4", email: "mike@example.com", firstName: "Mike", lastName: "Brown", lists: [], tags: ["Enterprise"], status: "subscribed", addedAt: "2025-03-01T10:00:00Z", lastActivity: "Subscribed - 5d ago" },
-  { id: "5", email: "emma@example.com", firstName: "Emma", lastName: "Wilson", lists: ["VIP"], tags: ["VIP"], status: "subscribed", addedAt: "2025-02-28T10:00:00Z", lastActivity: "Opened 'Newsletter #45' - 1d ago" },
-  { id: "6", email: "alex@example.com", firstName: "Alex", lastName: "Johnson", lists: ["Newsletter", "Product Updates"], tags: [], status: "bounced", addedAt: "2025-01-05T10:00:00Z", lastActivity: "Bounced - 2w ago" },
-];
+// Generate more mock contacts for pagination demo
+function generateMockContacts() {
+  const firstNames = ["Sarah", "John", "Jane", "Mike", "Emma", "Alex", "Olivia", "Liam", "Sophia", "Noah", "Ava", "Ethan", "Mia", "Lucas", "Isabella", "Mason", "Charlotte", "Logan", "Amelia", "James", "Harper", "Ben", "Evelyn", "Elijah", "Aria", "William", "Chloe", "Daniel", "Ella", "Henry", "Luna", "Sebastian", "Grace", "Jack", "Lily", "Aiden", "Zoey", "Owen", "Penelope", "Samuel", "Layla", "Ryan", "Riley", "Nathan", "Nora", "Leo", "Hannah", "Dylan", "Zoe", "Isaac"];
+  const lastNames = ["Lee", "Smith", "Doe", "Brown", "Wilson", "Johnson", "Davis", "Miller", "Anderson", "Taylor", "Thomas", "Moore", "Jackson", "Martin", "White", "Harris", "Thompson", "Garcia", "Martinez", "Robinson", "Clark", "Rodriguez", "Lewis", "Walker", "Hall", "Allen", "Young", "King", "Wright", "Lopez", "Green", "Adams", "Baker", "Nelson", "Carter", "Mitchell", "Perez", "Roberts", "Turner", "Phillips"];
+  const domains = ["example.com", "company.co", "mail.com", "test.org", "acme.com", "gmial.com", "hotmal.com", "tempmail.com", "corp.io", "startup.dev"];
+  const lists = ["Newsletter", "VIP", "Product Updates", "Marketing", "Enterprise"];
+  const tags = ["VIP", "Engaged", "New", "Enterprise", "At-risk", "Premium"];
+  const statuses = ["subscribed", "subscribed", "subscribed", "subscribed", "unsubscribed", "bounced"];
+  const activities = [
+    "Opened 'Summer Sale' - 2h ago",
+    "Clicked link - 1d ago",
+    "Unsubscribed - 3d ago",
+    "Subscribed - 5d ago",
+    "Opened 'Newsletter #45' - 1d ago",
+    "Bounced - 2w ago",
+    "Opened 'Welcome' - 3h ago",
+    "Clicked CTA - 12h ago",
+  ];
+
+  const contacts = [];
+  for (let i = 0; i < 87; i++) {
+    const fn = firstNames[i % firstNames.length];
+    const ln = lastNames[i % lastNames.length];
+    const domain = domains[i % domains.length];
+    const email = `${fn.toLowerCase()}.${ln.toLowerCase()}${i > 0 ? i : ""}@${domain}`;
+    const contactLists = lists.filter((_, j) => (i + j) % 3 === 0).slice(0, 2);
+    const contactTags = tags.filter((_, j) => (i + j) % 4 === 0).slice(0, 3);
+    const status = statuses[i % statuses.length];
+    const day = String((i % 28) + 1).padStart(2, "0");
+    const month = String((i % 12) + 1).padStart(2, "0");
+
+    contacts.push({
+      id: String(i + 1),
+      email,
+      firstName: fn,
+      lastName: ln,
+      lists: contactLists,
+      tags: contactTags,
+      status,
+      addedAt: `2025-${month}-${day}T10:00:00Z`,
+      lastActivity: activities[i % activities.length],
+    });
+  }
+  return contacts;
+}
+
+const allContacts = generateMockContacts();
 
 const mockLists = [
   { id: 1, name: "Newsletter Subscribers", count: 8234, createdAt: "2025-01-01" },
@@ -63,18 +108,76 @@ const statusConfig: Record<string, { label: string; color: string; dot: string }
   blacklisted: { label: "Blacklisted", color: "text-gray-700", dot: "bg-gray-900" },
 };
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
 export default function AudiencePage() {
   const [search, setSearch] = useState("");
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [showAddContact, setShowAddContact] = useState(false);
-  const [selectedContact, setSelectedContact] = useState<typeof mockContacts[0] | null>(null);
+  const [selectedContact, setSelectedContact] = useState<typeof allContacts[0] | null>(null);
 
-  const filteredContacts = mockContacts.filter(
-    (c) =>
-      c.email.toLowerCase().includes(search.toLowerCase()) ||
-      c.firstName.toLowerCase().includes(search.toLowerCase()) ||
-      c.lastName.toLowerCase().includes(search.toLowerCase())
-  );
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Validation state
+  const [showValidation, setShowValidation] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validationProgress, setValidationProgress] = useState(0);
+  const [validationResults, setValidationResults] = useState<{
+    results: EmailValidationResult[];
+    summary: { total: number; valid: number; invalid: number; risky: number };
+  } | null>(null);
+
+  // Filter contacts
+  const filteredContacts = useMemo(() => {
+    return allContacts.filter(
+      (c) =>
+        c.email.toLowerCase().includes(search.toLowerCase()) ||
+        c.firstName.toLowerCase().includes(search.toLowerCase()) ||
+        c.lastName.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [search]);
+
+  // Pagination calculations
+  const totalContacts = filteredContacts.length;
+  const totalPages = Math.ceil(totalContacts / pageSize);
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalContacts);
+  const paginatedContacts = filteredContacts.slice(startIndex, endIndex);
+
+  // Reset to page 1 when search changes
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setCurrentPage(1);
+  };
+
+  // Page size change
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setCurrentPage(1);
+  };
+
+  // Generate page numbers to display
+  const getPageNumbers = () => {
+    const pages: (number | "ellipsis")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push("ellipsis");
+      for (
+        let i = Math.max(2, currentPage - 1);
+        i <= Math.min(totalPages - 1, currentPage + 1);
+        i++
+      ) {
+        pages.push(i);
+      }
+      if (currentPage < totalPages - 2) pages.push("ellipsis");
+      pages.push(totalPages);
+    }
+    return pages;
+  };
 
   const toggleContact = (id: string) => {
     setSelectedContacts((prev) =>
@@ -82,13 +185,64 @@ export default function AudiencePage() {
     );
   };
 
-  const toggleAll = () => {
-    if (selectedContacts.length === filteredContacts.length) {
-      setSelectedContacts([]);
+  const toggleAllOnPage = () => {
+    const pageIds = paginatedContacts.map((c) => c.id);
+    const allSelected = pageIds.every((id) => selectedContacts.includes(id));
+    if (allSelected) {
+      setSelectedContacts((prev) => prev.filter((id) => !pageIds.includes(id)));
     } else {
-      setSelectedContacts(filteredContacts.map((c) => c.id));
+      setSelectedContacts((prev) => [...new Set([...prev, ...pageIds])]);
     }
   };
+
+  const selectAllContacts = () => {
+    setSelectedContacts(filteredContacts.map((c) => c.id));
+  };
+
+  // Bulk email validation
+  const handleValidateEmails = async () => {
+    const emailsToValidate = allContacts
+      .filter((c) => selectedContacts.includes(c.id))
+      .map((c) => c.email);
+
+    if (emailsToValidate.length === 0) return;
+
+    setShowValidation(true);
+    setValidating(true);
+    setValidationProgress(0);
+    setValidationResults(null);
+
+    try {
+      // Simulate progress for UX
+      const progressInterval = setInterval(() => {
+        setValidationProgress((prev) => Math.min(prev + 15, 90));
+      }, 200);
+
+      const res = await fetch("/api/contacts/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails: emailsToValidate }),
+      });
+
+      clearInterval(progressInterval);
+      setValidationProgress(100);
+
+      if (res.ok) {
+        const data = await res.json();
+        setValidationResults(data);
+      } else {
+        console.error("Validation request failed");
+      }
+    } catch (error) {
+      console.error("Validation error:", error);
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const allOnPageSelected =
+    paginatedContacts.length > 0 &&
+    paginatedContacts.every((c) => selectedContacts.includes(c.id));
 
   return (
     <div className="space-y-6">
@@ -131,7 +285,7 @@ export default function AudiencePage() {
                 placeholder="Search by email, name, or tag..."
                 className="pl-9"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
             </div>
             <Button variant="outline" size="sm">
@@ -142,19 +296,38 @@ export default function AudiencePage() {
 
           {/* Bulk Actions */}
           {selectedContacts.length > 0 && (
-            <div className="flex items-center gap-3 mb-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+            <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
               <span className="text-sm font-medium text-indigo-700">
-                {selectedContacts.length} contacts selected
+                {selectedContacts.length} contact{selectedContacts.length !== 1 ? "s" : ""} selected
               </span>
-              <Button variant="outline" size="sm">Add to List</Button>
-              <Button variant="outline" size="sm">Add Tag</Button>
-              <Button variant="destructive" size="sm">Delete</Button>
-              <button
-                className="ml-auto text-sm text-indigo-600 hover:underline"
-                onClick={() => setSelectedContacts([])}
-              >
-                Clear selection
-              </button>
+              {selectedContacts.length < filteredContacts.length && (
+                <button
+                  className="text-sm text-indigo-600 hover:underline font-medium"
+                  onClick={selectAllContacts}
+                >
+                  Select all {filteredContacts.length} contacts
+                </button>
+              )}
+              <div className="flex items-center gap-2 ml-auto">
+                <Button variant="outline" size="sm">Add to List</Button>
+                <Button variant="outline" size="sm">Add Tag</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleValidateEmails}
+                  className="border-indigo-300 text-indigo-700 hover:bg-indigo-100"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                  Validate Emails
+                </Button>
+                <Button variant="destructive" size="sm">Delete</Button>
+                <button
+                  className="text-sm text-indigo-600 hover:underline"
+                  onClick={() => setSelectedContacts([])}
+                >
+                  Clear
+                </button>
+              </div>
             </div>
           )}
 
@@ -168,8 +341,8 @@ export default function AudiencePage() {
                       <input
                         type="checkbox"
                         className="h-4 w-4 rounded border-gray-300 text-indigo-500"
-                        checked={selectedContacts.length === filteredContacts.length && filteredContacts.length > 0}
-                        onChange={toggleAll}
+                        checked={allOnPageSelected}
+                        onChange={toggleAllOnPage}
                       />
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Email</th>
@@ -182,7 +355,7 @@ export default function AudiencePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredContacts.map((contact) => (
+                  {paginatedContacts.map((contact) => (
                     <tr
                       key={contact.id}
                       className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
@@ -246,20 +419,71 @@ export default function AudiencePage() {
                       </td>
                     </tr>
                   ))}
+                  {paginatedContacts.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-500">
+                        No contacts found matching your search.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
+
             {/* Pagination */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <p className="text-sm text-gray-500">
-                Showing 1-{filteredContacts.length} of {filteredContacts.length} contacts
-              </p>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-gray-100">
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-gray-500">
+                  Showing {totalContacts === 0 ? 0 : startIndex + 1}-{endIndex} of {totalContacts} contacts
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    className="h-8 rounded-md border border-gray-300 px-2 text-xs text-gray-700"
+                    value={pageSize}
+                    onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={size}>
+                        {size} per page
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="text-sm text-gray-700 px-2">1</span>
-                <Button variant="outline" size="sm" disabled>
+                {getPageNumbers().map((page, i) =>
+                  page === "ellipsis" ? (
+                    <span key={`e-${i}`} className="px-2 text-sm text-gray-400">
+                      ...
+                    </span>
+                  ) : (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`h-8 w-8 rounded-md text-sm font-medium transition-colors ${
+                        currentPage === page
+                          ? "bg-indigo-500 text-white"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  )
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -410,6 +634,128 @@ export default function AudiencePage() {
               <Button type="submit">Add Contact</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Validation Results Dialog */}
+      <Dialog open={showValidation} onOpenChange={setShowValidation}>
+        <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-indigo-500" />
+              Email Validation Results
+            </DialogTitle>
+            <DialogDescription>
+              Validating {selectedContacts.length} selected email{selectedContacts.length !== 1 ? "s" : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {validating && !validationResults && (
+            <div className="py-8 space-y-4 text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-500" />
+              <p className="text-sm text-gray-600">Validating emails...</p>
+              <Progress value={validationProgress} className="max-w-xs mx-auto" />
+            </div>
+          )}
+
+          {validationResults && (
+            <div className="space-y-4 overflow-hidden flex flex-col flex-1">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="rounded-lg bg-gray-50 p-3 text-center">
+                  <p className="text-2xl font-bold text-gray-900">{validationResults.summary.total}</p>
+                  <p className="text-xs text-gray-500">Total</p>
+                </div>
+                <div className="rounded-lg bg-emerald-50 p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-600">{validationResults.summary.valid}</p>
+                  <p className="text-xs text-emerald-600">Valid</p>
+                </div>
+                <div className="rounded-lg bg-amber-50 p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-600">{validationResults.summary.risky}</p>
+                  <p className="text-xs text-amber-600">Risky</p>
+                </div>
+                <div className="rounded-lg bg-red-50 p-3 text-center">
+                  <p className="text-2xl font-bold text-red-600">{validationResults.summary.invalid}</p>
+                  <p className="text-xs text-red-600">Invalid</p>
+                </div>
+              </div>
+
+              {/* Results Table */}
+              <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
+                <table className="w-full">
+                  <thead className="sticky top-0">
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Status</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Email</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Reason</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {validationResults.results.map((result, i) => (
+                      <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="px-3 py-2">
+                          {result.valid && result.riskLevel === "low" && (
+                            <CheckCircle className="h-4 w-4 text-emerald-500" />
+                          )}
+                          {result.valid && result.riskLevel !== "low" && (
+                            <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          )}
+                          {!result.valid && (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-sm font-mono text-gray-900">{result.email}</span>
+                          {result.suggestion && (
+                            <p className="text-xs text-indigo-500 mt-0.5">
+                              Suggestion: {result.suggestion}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-xs text-gray-600">{result.reason}</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge
+                            variant={
+                              result.riskLevel === "low" ? "success" :
+                              result.riskLevel === "medium" ? "warning" :
+                              result.riskLevel === "high" ? "destructive" : "secondary"
+                            }
+                            className="text-[10px]"
+                          >
+                            {result.riskLevel}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="mt-2">
+            {validationResults && (
+              <Button variant="outline" size="sm" onClick={() => {
+                // Remove invalid contacts from selection
+                const invalidEmails = new Set(
+                  validationResults.results.filter((r) => !r.valid).map((r) => r.email)
+                );
+                const validIds = allContacts
+                  .filter((c) => selectedContacts.includes(c.id) && !invalidEmails.has(c.email.toLowerCase()))
+                  .map((c) => c.id);
+                setSelectedContacts(validIds);
+                setShowValidation(false);
+              }}>
+                Remove Invalid from Selection
+              </Button>
+            )}
+            <Button onClick={() => setShowValidation(false)}>
+              {validating ? "Cancel" : "Close"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

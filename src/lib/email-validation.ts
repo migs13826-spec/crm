@@ -721,6 +721,24 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
   // Detect SMTP provider from MX record
   baseResult.smtpProvider = detectSmtpProvider(baseResult.mxRecord, null);
 
+  // Providers known to reject RCPT TO from external/unknown senders.
+  // Their 550 responses do NOT reliably indicate a non-existent mailbox — they
+  // reject as an anti-spam measure. We cannot trust mailboxExists === false
+  // for these providers and should fall back to "valid if MX exists".
+  const unreliableSmtpProviders = new Set([
+    "microsoft", // Office 365 / Outlook — rejects all external RCPT TO
+    "google",    // Gmail / Workspace — often blocks or greylists
+    "yahoo",     // Yahoo Mail — similar behaviour
+    "apple",     // iCloud — blocks external verification
+    "proofpoint", // Enterprise gateway — blocks verification
+    "mimecast",  // Enterprise gateway — blocks verification
+    "barracuda", // Enterprise gateway — blocks verification
+  ]);
+
+  const providerBlocksSmtpVerify = unreliableSmtpProviders.has(
+    baseResult.smtpProvider || ""
+  );
+
   // SMTP mailbox verification
   if (baseResult.mxFound && baseResult.mxRecord) {
     try {
@@ -739,8 +757,17 @@ export async function validateEmail(email: string): Promise<EmailValidationResul
           baseResult.status = "valid";
           baseResult.subStatus = isRoleBased ? "role_based" : "mailbox_found";
         } else if (smtpResult.mailboxExists === false) {
-          baseResult.status = "invalid";
-          baseResult.subStatus = "mailbox_not_found";
+          if (providerBlocksSmtpVerify) {
+            // Provider is known to reject all RCPT TO from external senders.
+            // A 550 here does NOT mean the mailbox is missing — the provider
+            // simply blocks verification. Trust MX instead.
+            baseResult.status = "valid";
+            baseResult.subStatus = isRoleBased ? "role_based" : "mx_found";
+          } else {
+            // Provider allows SMTP verification — trust the 550
+            baseResult.status = "invalid";
+            baseResult.subStatus = "mailbox_not_found";
+          }
         } else {
           // Could not determine (greylisting, etc.) - MX exists so likely valid
           baseResult.status = "valid";
